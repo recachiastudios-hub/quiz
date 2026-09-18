@@ -235,6 +235,9 @@
     margin-top: 28px;
   }
 
+  .skip-row { margin-top: 18px; text-align: center; }
+  .skip-btn { padding: 8px 18px; font-size: 13px; color: var(--muted); margin-right: 0; }
+
   .home-btns .btn { flex: 1; padding: 12px 16px; white-space: nowrap; }
   .home-btns .btn-outline { margin-right: 0; }
   .correct-tag, .wrong-tag { white-space: nowrap; margin-left: 12px; }
@@ -339,7 +342,9 @@ let mcAnswer = null;
 // Taker state
 let takerName = '';
 let takerAnswers = [];
-let takerQ = 0;
+let queue = [];               // questions still to answer, in the order they will be shown
+let answerMap = [];           // answers by original question number (null = not answered yet)
+let lastSkipAt = 0;
 let takerStarted = false;
 let quizLocked = false;
 let takerBusy = false;        // true while the correct/wrong flash is showing
@@ -350,6 +355,8 @@ let resultImageUrl = null;
 let resultSubmitted = false;
 let closeWarned = false;
 let sharing = false;
+let quizId = '';              // identifies this quiz on the student's device
+let restored = false;         // progress was restored from this device
 
 // ── HELPERS ────────────────────────────────────────────
 function show(id) {
@@ -392,7 +399,43 @@ function validateQuiz(q) {
       return null;
     }
   }
-  return { v: 1, questions: out };
+  const id = (typeof q.id === 'string' && /^[a-z0-9]{4,20}$/i.test(q.id)) ? q.id : '';
+  return { v: 1, id: id, questions: out };
+}
+
+function hashStr(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+
+function newQuizId() {
+  try {
+    return Array.from(crypto.getRandomValues(new Uint8Array(8)), b => (b % 36).toString(36)).join('');
+  } catch (e) {
+    return Math.random().toString(36).slice(2, 10);
+  }
+}
+
+// ── ONE ATTEMPT PER DEVICE ─────────────────────────────
+// Remembers (on this phone/browser only) the student's name and answers so far.
+function progressKey() { return quizId ? 'qb1:' + quizId : ''; }
+
+function saveProgress() {
+  if (previewMode || !progressKey()) return;
+  try {
+    localStorage.setItem(progressKey(), JSON.stringify({ n: takerName, g: answerMap.map(a => a ? a.given : null), o: queue.slice() }));
+  } catch (e) {}
+}
+
+function loadProgress() {
+  if (!progressKey()) return null;
+  try {
+    const p = JSON.parse(localStorage.getItem(progressKey()) || 'null');
+    if (p && typeof p.n === 'string' && p.n && Array.isArray(p.g) && p.g.length <= quizData.length &&
+        p.g.every(x => x === null || typeof x === 'string')) return p;
+  } catch (e) {}
+  return null;
 }
 
 function encodeQuiz(q) {
@@ -604,7 +647,7 @@ function tfFinish() {
 
 // ── SAVE + SHARE LINK ──────────────────────────────────
 async function saveQuiz() {
-  const quiz = validateQuiz({ v: 1, questions: questions });
+  const quiz = validateQuiz({ v: 1, id: newQuizId(), questions: questions });
   if (!quiz) { showMsg('Something is wrong with the quiz. Please rebuild it.'); return; }
   const btn = document.getElementById('saveBtn');
 
@@ -671,7 +714,7 @@ async function detectTeacher() {
     const user = await window.claude.use('user');
     if (!user) return;
     const canEdit = await user.canEdit();
-    if (canEdit && !takerStarted && !teacherMode) renderTeacherPanel();
+    if (canEdit && (!takerStarted || restored) && !teacherMode) renderTeacherPanel();
   } catch (e) {}
 }
 
@@ -715,11 +758,17 @@ function exitPreview() {
 }
 
 // ── TAKER ──────────────────────────────────────────────
+function initQueue() {
+  queue = quizData ? quizData.map((_, i) => i) : [];
+  answerMap = quizData ? quizData.map(() => null) : [];
+}
+
 function resetTaker() {
-  takerQ = 0;
+  initQueue();
   takerAnswers = [];
   takerName = '';
   takerStarted = false;
+  restored = false;
   quizLocked = false;
   takerBusy = false;
   resultSubmitted = false;
@@ -765,19 +814,21 @@ function beginQuiz() {
   if (!n) { document.getElementById('studentName').style.borderColor='#b83232'; return; }
   takerName = n;
   takerStarted = true;
+  saveProgress();
   renderTakerQ();
 }
 
 function renderTakerQ() {
   takerBusy = false;
   if (quizLocked) { renderLocked(); return; }
-  const q = quizData[takerQ];
+  const idx = queue[0];
+  const q = quizData[idx];
   const total = quizData.length;
-  const pct = Math.round((takerQ / total) * 100);
+  const pct = Math.round(((total - queue.length) / total) * 100);
 
   let html = `
     <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-    <div class="q-counter">Question ${takerQ+1} of ${total} · ${q.type==='mc'?'Multiple Choice':'True / False'}</div>
+    <div class="q-counter">Question ${idx+1} of ${total} · ${q.type==='mc'?'Multiple Choice':'True / False'}</div>
     <h2 dir="auto" style="margin-bottom:24px;">${esc(q.text)}</h2>`;
 
   if (q.type === 'mc') {
@@ -793,17 +844,35 @@ function renderTakerQ() {
     </div>`;
   }
 
+  // Skip: the question comes back at the end (not shown when it is the last one left)
+  if (queue.length > 1) {
+    html += `<div class="skip-row"><button class="btn btn-outline skip-btn" onclick="skipQuestion()">Skip for now</button></div>`;
+  }
+
   document.getElementById('takerContent').innerHTML = html;
+}
+
+function skipQuestion() {
+  if (quizLocked || takerBusy || queue.length < 2) return;
+  const now = Date.now();
+  if (now - lastSkipAt < 400) return;            // a quick double-tap must not skip two questions
+  lastSkipAt = now;
+  queue.push(queue.shift());
+  saveProgress();
+  renderTakerQ();
 }
 
 function selectAnswer(val) {
   if (quizLocked || takerBusy) return;
   takerBusy = true;
-  const q = quizData[takerQ];
+  const idx = queue[0];
+  const q = quizData[idx];
 
   // Flash correct/wrong briefly then move on
   const isCorrect = val === q.answer;
-  takerAnswers.push({ question: q.text, given: val, correct: q.answer, right: isCorrect });
+  answerMap[idx] = { question: q.text, given: val, correct: q.answer, right: isCorrect };
+  queue.shift();
+  saveProgress();
 
   // Highlight
   if (q.type === 'mc') {
@@ -820,8 +889,8 @@ function selectAnswer(val) {
   }
 
   setTimeout(() => {
-    takerQ++;
-    if (takerQ >= quizData.length) {
+    if (queue.length === 0) {
+      takerAnswers = answerMap.slice();          // results are listed in the original question order
       quizLocked = true;
       renderResult();
     } else {
@@ -1087,8 +1156,35 @@ try {
 const shared = loadSharedQuiz();
 if (shared) {
   quizData = shared.quiz.questions;
+  quizId = shared.quiz.id || ('h' + hashStr(JSON.stringify(shared.quiz.questions)));
+  initQueue();
   show('taker');
-  renderTakerName();
+  const saved = loadProgress();
+  if (saved) {
+    // This device already started (or finished) this quiz: continue, never restart.
+    restored = true;
+    takerName = saved.n;
+    takerStarted = true;
+    initQueue();
+    quizData.forEach((q, i) => {
+      const given = saved.g[i];
+      if (typeof given === 'string') answerMap[i] = { question: q.text, given: given, correct: q.answer, right: given === q.answer };
+    });
+    const remaining = quizData.map((_, i) => i).filter(i => !answerMap[i]);
+    let order = Array.isArray(saved.o) ? saved.o.filter(i => Number.isInteger(i) && remaining.includes(i)) : [];
+    remaining.forEach(i => { if (!order.includes(i)) order.push(i); });   // also covers older saved notes
+    queue = order;
+    if (queue.length === 0) {
+      takerAnswers = answerMap.slice();
+      quizLocked = true;
+      renderResult();
+      showMsg('You already completed this quiz on this device. You can send your result again below.', 'submitStatus', true);
+    } else {
+      renderTakerQ();
+    }
+  } else {
+    renderTakerName();
+  }
   if (shared.source === 'page') detectTeacher();
 }
 </script>
