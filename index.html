@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz Builder — Youssef Hisham</title>
+<style id="app-css">
+  :root {
+    color-scheme: light;
+    --bg: #FAFAF8;
+    --surface: #F5F5F2;
+    --border: #E0E0DC;
+    --text: #1a1a1a;
+    --muted: #888;
+    --accent: #1a1a1a;
+    --correct: #2d7a4f;
+    --wrong: #b83232;
+    --radius: 12px;
+    --font: 'Segoe UI', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 40px;
+    width: 100%;
+    max-width: 560px;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+  }
+
+  .brand {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 28px;
+    text-transform: uppercase;
+  }
+
+  h1 { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+  h2 { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
+
+  .subtitle {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 32px;
+  }
+
+  .step-label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+
+  .progress-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-bottom: 32px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--text);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: #444;
+  }
+
+  input[type="text"], textarea {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 15px;
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+    resize: none;
+  }
+
+  input[type="text"]:focus, textarea:focus {
+    border-color: var(--text);
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 12px 28px;
+    background: var(--text);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    font-family: var(--font);
+  }
+
+  .btn:hover { opacity: 0.85; }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    margin-right: 10px;
+  }
+
+  .btn-outline:hover { background: var(--surface); opacity: 1; }
+
+  .tf-options {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+  }
+
+  .tf-btn {
+    flex: 1;
+    padding: 14px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font);
+    color: var(--text);
+  }
+
+  .tf-btn:hover { border-color: #bbb; }
+
+  .tf-btn.selected {
+    border-color: var(--text);
+    background: var(--text);
+    color: #fff;
+  }
+
+  .tf-btn.correct { border-color: var(--correct); background: var(--correct); color: #fff; }
+  .tf-btn.wrong { border-color: var(--wrong); background: var(--wrong); color: #fff; }
+
+  .answer-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--bg);
+    font-size: 15px;
+  }
+
+  .answer-option:hover { border-color: #bbb; }
+  .answer-option.selected { border-color: var(--text); background: var(--text); color: #fff; }
+  .answer-option.correct { border-color: var(--correct); background: var(--correct); color: #fff; }
+  .answer-option.wrong { border-color: var(--wrong); background: var(--wrong); color: #fff; }
+
+  .option-label {
+    font-weight: 700;
+    font-size: 13px;
+    min-width: 20px;
+  }
+
+  .name-input-wrap { margin-bottom: 24px; }
+
+  .result-name {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .result-score {
+    font-size: 64px;
+    font-weight: 800;
+    line-height: 1;
+    margin: 20px 0 8px;
+  }
+
+  .result-label { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
+
+  .result-breakdown {
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+    margin-top: 8px;
+  }
+
+  .breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .correct-tag { color: var(--correct); font-weight: 600; }
+  .wrong-tag { color: var(--wrong); font-weight: 600; }
+
+  .locked {
+    text-align: center;
+    padding: 40px 0;
+  }
+
+  .locked-icon { font-size: 48px; margin-bottom: 16px; }
+
+  .home-btns {
+    display: flex;
+    gap: 12px;
+    margin-top: 28px;
+  }
+
+  .home-btns .btn { flex: 1; padding: 12px 16px; white-space: nowrap; }
+  .home-btns .btn-outline { margin-right: 0; }
+  .correct-tag, .wrong-tag { white-space: nowrap; margin-left: 12px; }
+
+  .screenshot-hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 16px;
+    text-align: center;
+  }
+
+  .q-counter {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  .btn:disabled { opacity: 0.6; cursor: default; }
+
+  .msg {
+    font-size: 13px;
+    color: var(--wrong);
+    margin-top: 14px;
+    min-height: 1em;
+    line-height: 1.4;
+  }
+  .msg.ok { color: var(--correct); }
+
+  .info-box {
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 24px;
+    line-height: 1.6;
+  }
+
+  #imgPreview img {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 16px;
+  }
+
+  #home { display: block; }
+  #maker { display: none; }
+  #taker { display: none; }
+</style>
+</head>
+<body>
+<script type="application/json" id="quiz-data">null</script>
+<script id="app-js">
+const PAGE_TITLE = 'Quiz Builder — Youssef Hisham';
+
+// The three screens live here (not in the HTML) so this page can rebuild
+// its own source when the teacher saves a quiz.
+const BODY_HTML = `
+<!-- HOME -->
+<div class="card" id="home">
+  <div class="brand">© Youssef Hisham 2026</div>
+  <h1>Quiz Builder</h1>
+  <p class="subtitle">Create a quiz or take one your teacher shared.</p>
+  <div style="display:flex; gap:12px; margin-top:32px;">
+    <button class="btn" onclick="startMaker()">Build a Quiz</button>
+    <button class="btn btn-outline" onclick="startTaker()">Take a Quiz</button>
+  </div>
+  <div class="msg" id="homeMsg"></div>
+</div>
+
+<!-- QUIZ MAKER -->
+<div class="card" id="maker">
+  <div class="brand">Quiz Builder — Maker Mode</div>
+  <div class="progress-bar"><div class="progress-fill" id="makerProgress"></div></div>
+  <div id="makerContent"></div>
+</div>
+
+<!-- QUIZ TAKER -->
+<div class="card" id="taker">
+  <div class="brand">© Youssef Hisham 2026</div>
+  <div id="takerContent"></div>
+</div>
+`;
+document.body.insertAdjacentHTML('afterbegin', BODY_HTML);
+
+// ── STATE ──────────────────────────────────────────────
+let quizData = null;       // the quiz students take
+let currentQ = {};         // question being built
+let questions = [];        // finished questions
+const MC_COUNT = 5;
+const TF_COUNT = 5;
+const TOTAL = MC_COUNT + TF_COUNT;
+
+// Maker sub-steps per MC question:
+// 0=question text, 1=A, 2=B, 3=C, 4=D, 5=answer
+// TF sub-steps: 0=question text, 1=answer
+let subStep = 0;
+let qIndex = 0;   // 0-4 = MC, 5-9 = TF
+let tfAnswer = null;
+let mcAnswer = null;
+
+// Taker state
+let takerName = '';
+let takerAnswers = [];
+let takerQ = 0;
+let takerStarted = false;
+let quizLocked = false;
+let takerBusy = false;        // true while the correct/wrong flash is showing
+let previewMode = false;      // teacher trying the quiz
+let teacherMode = false;      // teacher panel is showing
+let resultImagePromise = null;
+let resultImageUrl = null;
+let resultSubmitted = false;
+let closeWarned = false;
+let sharing = false;
+
+// ── HELPERS ────────────────────────────────────────────
+function show(id) {
+  ['home','maker','taker'].forEach(x => document.getElementById(x).style.display = 'none');
+  document.getElementById(id).style.display = 'block';
+}
+
+function setProgress(pct) {
+  document.getElementById('makerProgress').style.width = pct + '%';
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function showMsg(text, id, ok) {
+  const el = document.getElementById(id || 'msg');
+  if (!el) return;
+  el.className = 'msg' + (ok ? ' ok' : '');
+  el.textContent = text;
+}
+
+function gradeFor(pct) {
+  return pct >= 90 ? 'Excellent' : pct >= 75 ? 'Very Good' : pct >= 60 ? 'Good' : pct >= 50 ? 'Pass' : 'Needs Review';
+}
+
+// ── QUIZ DATA: validate + link encoding ────────────────
+function validateQuiz(q) {
+  if (!q || !Array.isArray(q.questions) || q.questions.length < 1 || q.questions.length > 50) return null;
+  const out = [];
+  for (const it of q.questions) {
+    if (!it || typeof it.text !== 'string') return null;
+    if (it.type === 'mc') {
+      if (!Array.isArray(it.choices) || it.choices.length !== 4 || !['A','B','C','D'].includes(it.answer)) return null;
+      out.push({ type: 'mc', text: it.text.slice(0, 500), choices: it.choices.map(c => String(c).slice(0, 300)), answer: it.answer });
+    } else if (it.type === 'tf') {
+      if (it.answer !== 'True' && it.answer !== 'False') return null;
+      out.push({ type: 'tf', text: it.text.slice(0, 500), answer: it.answer });
+    } else {
+      return null;
+    }
+  }
+  return { v: 1, questions: out };
+}
+
+function encodeQuiz(q) {
+  const bytes = new TextEncoder().encode(JSON.stringify(q));
+  let s = '';
+  bytes.forEach(b => s += String.fromCharCode(b));
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeQuiz(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function loadSharedQuiz() {
+  try {
+    const m = location.hash.match(/^#quiz=([A-Za-z0-9_-]+)$/);
+    if (m) {
+      const q = validateQuiz(decodeQuiz(m[1]));
+      if (q) return { quiz: q, source: 'link' };
+    }
+  } catch (e) {}
+  try {
+    const el = document.getElementById('quiz-data');
+    const txt = el ? el.textContent.trim() : '';
+    if (txt && txt !== 'null') {
+      const q = validateQuiz(JSON.parse(txt));
+      if (q) return { quiz: q, source: 'page' };
+    }
+  } catch (e) {}
+  return null;
+}
+
+// The page's own source, rebuilt with a quiz baked in (used when saving).
+function buildPageHtml(quiz) {
+  const css = document.getElementById('app-css').textContent;
+  const code = document.getElementById('app-js').textContent;
+  const data = JSON.stringify(quiz).replace(/</g, '\\u003c');
+  return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+    '<title>' + PAGE_TITLE + '</title>\n' +
+    '<style id="app-css">' + css + '</style>\n</head>\n<body>\n' +
+    '<scr' + 'ipt type="application/json" id="quiz-data">' + data + '<' + '/script>\n' +
+    '<scr' + 'ipt id="app-js">' + code + '<' + '/script>\n</body>\n</html>';
+}
+
+// ── MAKER ──────────────────────────────────────────────
+function startMaker() {
+  questions = [];
+  qIndex = 0;
+  subStep = 0;
+  currentQ = {};
+  show('maker');
+  renderMakerStep();
+}
+
+function renderMakerStep() {
+  const isMC = qIndex < MC_COUNT;
+  const isTF = qIndex >= MC_COUNT && qIndex < TOTAL;
+  const qNum = qIndex + 1;
+  const progress = Math.round((qIndex / TOTAL) * 100);
+  setProgress(progress);
+
+  let html = '';
+
+  if (isMC) {
+    if (subStep === 0) {
+      html = `
+        <div class="q-counter">Multiple Choice — Question ${qNum} of ${MC_COUNT}</div>
+        <h2>Question ${qNum}</h2>
+        <label>Type the question</label>
+        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. What is the capital of Egypt?"></textarea>
+        <div style="margin-top:24px;">
+          <button class="btn" onclick="mcNext()">Next →</button>
+        </div>`;
+    } else if (subStep >= 1 && subStep <= 4) {
+      const letter = ['A','B','C','D'][subStep-1];
+      html = `
+        <div class="q-counter">Multiple Choice — Question ${qNum} of ${MC_COUNT}</div>
+        <h2>Question ${qNum}</h2>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:#444;">${esc(currentQ.text)}</p>
+        <label>Option ${letter}</label>
+        <input type="text" dir="auto" id="inp" placeholder="Type option ${letter}…">
+        <div style="margin-top:24px;">
+          <button class="btn" onclick="mcNext()">Next →</button>
+        </div>`;
+    } else if (subStep === 5) {
+      html = `
+        <div class="q-counter">Multiple Choice — Question ${qNum} of ${MC_COUNT}</div>
+        <h2>Correct Answer?</h2>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:#444;">${esc(currentQ.text)}</p>
+        ${['A','B','C','D'].map((l,i) => `
+          <div class="answer-option ${mcAnswer===l?'selected':''}" onclick="selectMCAnswer('${l}')">
+            <span class="option-label">${l}</span>
+            <span dir="auto">${esc(currentQ.choices[i])}</span>
+          </div>`).join('')}
+        <div style="margin-top:24px;">
+          <button class="btn" onclick="mcFinish()">Save Question →</button>
+        </div>
+        <div class="msg" id="msg"></div>`;
+    }
+  } else if (isTF) {
+    const tfNum = qIndex - MC_COUNT + 1;
+    if (subStep === 0) {
+      html = `
+        <div class="q-counter">True / False — Question ${tfNum} of ${TF_COUNT}</div>
+        <h2>Question ${tfNum}</h2>
+        <label>Type the statement</label>
+        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. The internet is a type of Recording Media."></textarea>
+        <div style="margin-top:24px;">
+          <button class="btn" onclick="tfNext()">Next →</button>
+        </div>`;
+    } else if (subStep === 1) {
+      html = `
+        <div class="q-counter">True / False — Question ${tfNum} of ${TF_COUNT}</div>
+        <h2>Correct Answer?</h2>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:#444;">${esc(currentQ.text)}</p>
+        <div class="tf-options">
+          <button class="tf-btn ${tfAnswer==='True'?'selected':''}" onclick="selectTF('True')">True</button>
+          <button class="tf-btn ${tfAnswer==='False'?'selected':''}" onclick="selectTF('False')">False</button>
+        </div>
+        <div style="margin-top:24px;">
+          <button class="btn" onclick="tfFinish()">Save Question →</button>
+        </div>
+        <div class="msg" id="msg"></div>`;
+    }
+  } else {
+    // All done — save + share
+    html = `
+      <h2>Quiz Ready! 🎉</h2>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">All ${TOTAL} questions are in. Save the quiz to get a link for your students.</p>
+      <div class="info-box">
+        <strong>5 Multiple Choice</strong> + <strong>5 True / False</strong><br>
+        Students open your link, enter their name and answer. When they tap Submit, they send you a picture of their result on WhatsApp (or any app on their phone).
+      </div>
+      <button class="btn" id="saveBtn" onclick="saveQuiz()">Save Quiz &amp; Get Link →</button>
+      <div style="margin-top:12px;">
+        <button class="btn btn-outline" onclick="activateTaker()">Try it as a student</button>
+        <button class="btn btn-outline" onclick="startMaker()">Rebuild Quiz</button>
+      </div>
+      <div class="msg" id="msg"></div>`;
+    setProgress(100);
+  }
+
+  document.getElementById('makerContent').innerHTML = html;
+  const inp = document.getElementById('inp');
+  if (inp) inp.focus();
+}
+
+function mcNext() {
+  const inp = document.getElementById('inp');
+  const val = inp ? inp.value.trim() : '';
+  if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
+
+  if (subStep === 0) {
+    currentQ = { type:'mc', text: val, choices: [], answer: '' };
+  } else {
+    currentQ.choices.push(val);
+  }
+  subStep++;
+  mcAnswer = null;
+  renderMakerStep();
+}
+
+function selectMCAnswer(l) {
+  mcAnswer = l;
+  renderMakerStep();
+}
+
+function mcFinish() {
+  if (!mcAnswer) { showMsg('Please select the correct answer.'); return; }
+  currentQ.answer = mcAnswer;
+  questions.push({...currentQ});
+  qIndex++;
+  subStep = 0;
+  currentQ = {};
+  mcAnswer = null;
+  renderMakerStep();
+}
+
+function tfNext() {
+  const inp = document.getElementById('inp');
+  const val = inp ? inp.value.trim() : '';
+  if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
+  currentQ = { type:'tf', text: val, answer: '' };
+  tfAnswer = null;
+  subStep = 1;
+  renderMakerStep();
+}
+
+function selectTF(v) {
+  tfAnswer = v;
+  renderMakerStep();
+}
+
+function tfFinish() {
+  if (!tfAnswer) { showMsg('Please select True or False.'); return; }
+  currentQ.answer = tfAnswer;
+  questions.push({...currentQ});
+  qIndex++;
+  subStep = 0;
+  currentQ = {};
+  tfAnswer = null;
+  renderMakerStep();
+}
+
+// ── SAVE + SHARE LINK ──────────────────────────────────
+async function saveQuiz() {
+  const quiz = validateQuiz({ v: 1, questions: questions });
+  if (!quiz) { showMsg('Something is wrong with the quiz. Please rebuild it.'); return; }
+  const btn = document.getElementById('saveBtn');
+
+  let artifact = null;
+  try {
+    artifact = (window.claude && window.claude.use) ? await window.claude.use('artifact') : null;
+  } catch (e) {}
+
+  if (artifact) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    try {
+      await artifact.publish(buildPageHtml(quiz));   // the page reloads with the quiz built in
+      showMsg('Saved ✓ Reloading…', 'msg', true);
+    } catch (e) {
+      const code = e && e.code;
+      if (code === 'conflict') return;               // page is already reloading to the newer version
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Quiz & Get Link →'; }
+      const text =
+        (code === 'not_writer' || code === 'not_granted' || code === 'not_declared' || code === 'consent_required' || code === 'capability_disabled')
+          ? 'Only the owner of this page can save the quiz. Open it from your own account.' :
+        code === 'too_large' ? 'The quiz is too large to save.' :
+        code === 'rate_limited' ? 'Too many saves. Wait a moment and try again.' :
+        'Could not save the quiz. Please try again.';
+      showMsg(text);
+    }
+    return;
+  }
+
+  // Standalone copy of the page: put the quiz inside the link itself.
+  const link = location.href.split('#')[0] + '#quiz=' + encodeQuiz(quiz);
+  renderLinkPanel(link);
+}
+
+function renderLinkPanel(link) {
+  const fileNote = location.protocol === 'file:'
+    ? '<p class="screenshot-hint" style="text-align:left;">This page is open from a file on your computer, so students can’t open this link. Put the page online first, then create the link again.</p>'
+    : '';
+  document.getElementById('makerContent').innerHTML = `
+    <h2>Your student link 🔗</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Send this link to your students. The quiz is stored inside it.</p>
+    <input type="text" id="linkBox" readonly value="${esc(link)}" onclick="this.select()">
+    <div style="margin-top:20px;">
+      <button class="btn" onclick="copyLink()">Copy Link</button>
+      <button class="btn btn-outline" style="margin-left:10px;" onclick="renderMakerStep()">Back</button>
+    </div>
+    <div class="msg" id="msg"></div>
+    ${fileNote}`;
+}
+
+async function copyLink() {
+  const box = document.getElementById('linkBox');
+  if (!box) return;
+  box.select();
+  let ok = false;
+  try { await navigator.clipboard.writeText(box.value); ok = true; } catch (e) {}
+  if (!ok) { try { ok = document.execCommand('copy'); } catch (e) {} }
+  showMsg(ok ? 'Link copied ✓' : 'Press and hold the link to copy it.', 'msg', ok);
+}
+
+// ── TEACHER PANEL (saved quiz, owner only) ─────────────
+async function detectTeacher() {
+  try {
+    if (!window.claude || !window.claude.use) return;
+    const user = await window.claude.use('user');
+    if (!user) return;
+    const canEdit = await user.canEdit();
+    if (canEdit && !takerStarted && !teacherMode) renderTeacherPanel();
+  } catch (e) {}
+}
+
+function renderTeacherPanel() {
+  teacherMode = true;
+  const mc = quizData.filter(q => q.type === 'mc').length;
+  const tf = quizData.length - mc;
+  document.getElementById('home').innerHTML = `
+    <div class="brand">© Youssef Hisham 2026</div>
+    <h1>Your quiz is live</h1>
+    <p class="subtitle">Only you see this screen. Students who open this page’s link go straight to the quiz.</p>
+    <div class="info-box">
+      <strong>${mc} Multiple Choice</strong> + <strong>${tf} True / False</strong><br><br>
+      1. Copy this page’s link (use the share option where you opened it).<br>
+      2. Send it to your students.<br>
+      3. Each student enters their name, answers, then taps <strong>Submit</strong> to send you a picture of their result on WhatsApp (or any app).
+    </div>
+    <div style="display:flex; gap:12px;">
+      <button class="btn" onclick="previewSaved()">Preview as Student</button>
+      <button class="btn btn-outline" onclick="startMaker()">Build a New Quiz</button>
+    </div>`;
+  show('home');
+}
+
+function previewSaved() {
+  previewMode = true;
+  resetTaker();
+  show('taker');
+  renderTakerName();
+}
+
+function exitPreview() {
+  previewMode = false;
+  resetTaker();
+  if (teacherMode) {
+    renderTeacherPanel();
+  } else {
+    show('maker');
+    renderMakerStep();
+  }
+}
+
+// ── TAKER ──────────────────────────────────────────────
+function resetTaker() {
+  takerQ = 0;
+  takerAnswers = [];
+  takerName = '';
+  takerStarted = false;
+  quizLocked = false;
+  takerBusy = false;
+  resultSubmitted = false;
+  closeWarned = false;
+  sharing = false;
+  resultImagePromise = null;
+  if (resultImageUrl) { try { URL.revokeObjectURL(resultImageUrl); } catch (e) {} resultImageUrl = null; }
+}
+
+function activateTaker() {
+  quizData = [...questions];
+  previewMode = true;
+  resetTaker();
+  show('taker');
+  renderTakerName();
+}
+
+function startTaker() {
+  if (!quizData) {
+    showMsg('There is no quiz on this page yet. Open the link your teacher sent you.', 'homeMsg');
+    return;
+  }
+  previewMode = true;
+  resetTaker();
+  show('taker');
+  renderTakerName();
+}
+
+function renderTakerName() {
+  document.getElementById('takerContent').innerHTML = `
+    <h2>Welcome</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:28px;">Enter your name before starting the quiz.</p>
+    <div class="name-input-wrap">
+      <label>Your Name</label>
+      <input type="text" dir="auto" id="studentName" placeholder="e.g. Ahmed Mohamed" maxlength="60">
+    </div>
+    <button class="btn" onclick="beginQuiz()">Start Quiz →</button>
+    ${previewMode ? '<div style="margin-top:20px;"><button class="btn btn-outline" onclick="exitPreview()">Exit preview</button></div>' : ''}`;
+}
+
+function beginQuiz() {
+  const n = document.getElementById('studentName').value.trim();
+  if (!n) { document.getElementById('studentName').style.borderColor='#b83232'; return; }
+  takerName = n;
+  takerStarted = true;
+  renderTakerQ();
+}
+
+function renderTakerQ() {
+  takerBusy = false;
+  if (quizLocked) { renderLocked(); return; }
+  const q = quizData[takerQ];
+  const total = quizData.length;
+  const pct = Math.round((takerQ / total) * 100);
+
+  let html = `
+    <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+    <div class="q-counter">Question ${takerQ+1} of ${total} · ${q.type==='mc'?'Multiple Choice':'True / False'}</div>
+    <h2 dir="auto" style="margin-bottom:24px;">${esc(q.text)}</h2>`;
+
+  if (q.type === 'mc') {
+    html += ['A','B','C','D'].map((l,i) => `
+      <div class="answer-option" onclick="selectAnswer('${l}')">
+        <span class="option-label">${l}</span>
+        <span dir="auto">${esc(q.choices[i])}</span>
+      </div>`).join('');
+  } else {
+    html += `<div class="tf-options">
+      <button class="tf-btn" onclick="selectAnswer('True')">True</button>
+      <button class="tf-btn" onclick="selectAnswer('False')">False</button>
+    </div>`;
+  }
+
+  document.getElementById('takerContent').innerHTML = html;
+}
+
+function selectAnswer(val) {
+  if (quizLocked || takerBusy) return;
+  takerBusy = true;
+  const q = quizData[takerQ];
+
+  // Flash correct/wrong briefly then move on
+  const isCorrect = val === q.answer;
+  takerAnswers.push({ question: q.text, given: val, correct: q.answer, right: isCorrect });
+
+  // Highlight
+  if (q.type === 'mc') {
+    document.querySelectorAll('.answer-option').forEach(el => {
+      const l = el.querySelector('.option-label').textContent;
+      if (l === val) el.classList.add(isCorrect ? 'correct' : 'wrong');
+      if (l === q.answer && !isCorrect) el.classList.add('correct');
+    });
+  } else {
+    document.querySelectorAll('.tf-btn').forEach(el => {
+      if (el.textContent === val) el.classList.add(isCorrect ? 'correct' : 'wrong');
+      if (el.textContent === q.answer && !isCorrect) el.classList.add('correct');
+    });
+  }
+
+  setTimeout(() => {
+    takerQ++;
+    if (takerQ >= quizData.length) {
+      quizLocked = true;
+      renderResult();
+    } else {
+      renderTakerQ();
+    }
+  }, 800);
+}
+
+function renderResult() {
+  const score = takerAnswers.filter(a => a.right).length;
+  const total = takerAnswers.length;
+  const pct = Math.round((score / total) * 100);
+  const grade = gradeFor(pct);
+
+  // Build the picture now so Submit can share it instantly (phones need the tap to still be "fresh")
+  resultImagePromise = buildResultImage();
+  resultImagePromise.catch(() => {});
+
+  let rows = takerAnswers.map((a,i) => `
+    <div class="breakdown-row">
+      <span dir="auto">Q${i+1}: ${esc(a.question.length>40?a.question.slice(0,40)+'…':a.question)}</span>
+      <span class="${a.right?'correct-tag':'wrong-tag'}">${a.right?'✓ Correct':'✗ Wrong'}</span>
+    </div>`).join('');
+
+  document.getElementById('takerContent').innerHTML = `
+    <div class="result-name" dir="auto">${esc(takerName)}</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">© Youssef Hisham 2026</div>
+    <div class="result-score">${score}/${total}</div>
+    <div class="result-label">${grade} · ${pct}%</div>
+    <div class="result-breakdown">${rows}</div>
+    <p class="screenshot-hint" id="submitHint">📤 Tap Submit, then choose WhatsApp (or any app) to send your result to your teacher.</p>
+    <div class="home-btns">
+      <button class="btn" id="submitBtn" onclick="submitResult()">Submit Result</button>
+      <button class="btn btn-outline" onclick="closeQuiz()">${previewMode ? 'Exit Preview' : 'Close Quiz'}</button>
+    </div>
+    <div class="msg" id="submitStatus"></div>
+    <div id="imgPreview"></div>`;
+}
+
+function closeQuiz() {
+  if (previewMode) { exitPreview(); return; }
+  if (!resultSubmitted && !closeWarned) {
+    closeWarned = true;
+    showMsg('You haven’t sent your result yet. Tap Close Quiz again to leave without sending.', 'submitStatus');
+    return;
+  }
+  renderLocked();
+}
+
+function renderLocked() {
+  document.getElementById('takerContent').innerHTML = `
+    <div class="locked">
+      <div class="locked-icon">🔒</div>
+      <h2>Quiz Closed</h2>
+      <p style="color:var(--muted);font-size:14px;margin-top:8px;">This quiz session has ended.<br>Please contact your teacher for a new session.</p>
+    </div>`;
+}
+
+// ── RESULT PICTURE + SHARE ─────────────────────────────
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function fitText(ctx, text, maxW) {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t.replace(/\s+$/, '') + '…';
+}
+
+function buildResultImage() {
+  return new Promise((resolve, reject) => {
+    try {
+      const FONT = '"Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif';
+      const W = 1080, M = 40, P = 64;
+      const X0 = M + P, IW = W - 2 * M - 2 * P;
+      const score = takerAnswers.filter(a => a.right).length;
+      const total = takerAnswers.length;
+      const pct = Math.round((score / total) * 100);
+      const grade = gradeFor(pct);
+      const ROW = 84, EXTRA = 40, HEADER = 460;
+      const rowsH = takerAnswers.reduce((h, a) => h + ROW + (a.right ? 0 : EXTRA), 0);
+      const H = M + P + HEADER + rowsH + P + M;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = '#FAFAF8';
+      ctx.fillRect(0, 0, W, H);
+      roundRectPath(ctx, M, M, W - 2 * M, H - 2 * M, 28);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#E0E0DC';
+      ctx.stroke();
+
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      let y = M + P;
+
+      ctx.font = '500 24px ' + FONT;
+      ctx.fillStyle = '#888888';
+      ctx.fillText('© Youssef Hisham 2026', X0, y);
+      y += 24 + 44;
+
+      ctx.font = '700 56px ' + FONT;
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillText(fitText(ctx, takerName, IW), X0, y);
+      y += 56 + 12;
+
+      let dateStr;
+      try { dateStr = new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }); }
+      catch (e) { dateStr = new Date().toLocaleString(); }
+      ctx.font = '400 26px ' + FONT;
+      ctx.fillStyle = '#888888';
+      ctx.fillText(dateStr, X0, y);
+      y += 26 + 24;
+
+      ctx.font = '800 180px ' + FONT;
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillText(score + '/' + total, X0, y);
+      y += 180 + 8;
+
+      ctx.font = '400 30px ' + FONT;
+      ctx.fillStyle = '#888888';
+      ctx.fillText(grade + ' · ' + pct + '%', X0, y);
+      y += 30 + 36;
+
+      ctx.fillStyle = '#E0E0DC';
+      ctx.fillRect(X0, y, IW, 2);
+      y += 20;
+
+      ctx.textBaseline = 'middle';
+      takerAnswers.forEach((a, i) => {
+        const rh = ROW + (a.right ? 0 : EXTRA);
+        const mainY = y + (a.right ? ROW / 2 : 38);
+
+        const status = a.right ? '✓ Correct' : '✗ Wrong';
+        ctx.font = '700 30px ' + FONT;
+        const sw = ctx.measureText(status).width;
+        ctx.textAlign = 'right';
+        ctx.fillStyle = a.right ? '#2d7a4f' : '#b83232';
+        ctx.fillText(status, X0 + IW, mainY);
+
+        ctx.textAlign = 'left';
+        ctx.font = '500 30px ' + FONT;
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillText(fitText(ctx, 'Q' + (i + 1) + ': ' + a.question, IW - sw - 32), X0, mainY);
+
+        if (!a.right) {
+          ctx.font = '400 24px ' + FONT;
+          ctx.fillStyle = '#888888';
+          ctx.fillText(fitText(ctx, 'Answered ' + a.given + '  ·  Correct answer ' + a.correct, IW), X0, y + 78);
+        }
+
+        ctx.fillStyle = '#E0E0DC';
+        ctx.fillRect(X0, y + rh - 1, IW, 1);
+        y += rh;
+      });
+
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error('Could not create image')), 'image/png');
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function resultFileName() {
+  const slug = takerName.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'student';
+  return 'quiz-result-' + slug + '.png';
+}
+
+async function submitResult() {
+  if (sharing) return;
+  const btn = document.getElementById('submitBtn');
+  sharing = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
+  const finish = () => {
+    sharing = false;
+    if (btn) { btn.disabled = false; btn.textContent = resultSubmitted ? 'Submit Again' : 'Submit Result'; }
+  };
+
+  let blob;
+  try {
+    blob = await resultImagePromise;
+  } catch (e) {
+    showMsg('Sorry, the result picture could not be created. Please take a screenshot of this page instead.', 'submitStatus');
+    finish();
+    return;
+  }
+
+  const fname = resultFileName();
+  const score = takerAnswers.filter(a => a.right).length;
+  let file = null;
+  try { file = new File([blob], fname, { type: 'image/png' }); } catch (e) {}
+  const data = file ? { files: [file], title: 'Quiz result', text: takerName + ' — ' + score + '/' + takerAnswers.length } : null;
+
+  // 1) The phone's share sheet (WhatsApp, Telegram, email, ...)
+  if (data && navigator.share && navigator.canShare && navigator.canShare(data)) {
+    try {
+      await navigator.share(data);
+      resultSubmitted = true;
+      showMsg('Result shared ✓ If you didn’t finish sending it, tap Submit Again.', 'submitStatus', true);
+      finish();
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') { finish(); return; }   // student closed the share sheet
+      // any other failure: fall through and save the picture instead
+    }
+  }
+
+  // 2) No share sheet here: save the picture so it can be sent from the gallery
+  await saveResultImage(blob, fname);
+  finish();
+}
+
+async function saveResultImage(blob, fname) {
+  let saved = false;
+  try {
+    const dl = (window.claude && window.claude.use) ? await window.claude.use('downloads') : null;
+    if (dl) { await dl.save({ filename: fname, data: blob }); saved = true; }
+  } catch (e) {
+    if (e && e.code === 'declined') return;
+  }
+  if (!saved) {
+    try {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      saved = true;
+    } catch (e) {}
+  }
+
+  if (!resultImageUrl) resultImageUrl = URL.createObjectURL(blob);
+  const box = document.getElementById('imgPreview');
+  if (box) box.innerHTML = '<img alt="Your quiz result" src="' + resultImageUrl + '">';
+  resultSubmitted = true;
+  showMsg(
+    'Sharing isn’t available here. Save the picture below (press and hold it if it didn’t download), then send it to your teacher on WhatsApp.',
+    'submitStatus', true
+  );
+}
+
+// ── START ──────────────────────────────────────────────
+try {
+  history.pushState(null, '', location.href);
+  window.addEventListener('popstate', () => {
+    try { history.pushState(null, '', location.href); } catch (e) {}
+  });
+} catch (e) {}
+
+const shared = loadSharedQuiz();
+if (shared) {
+  quizData = shared.quiz.questions;
+  show('taker');
+  renderTakerName();
+  if (shared.source === 'page') detectTeacher();
+}
+</script>
+</body>
+</html>
