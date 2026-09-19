@@ -90,7 +90,7 @@
     color: #444;
   }
 
-  input[type="text"], textarea {
+  input[type="text"], input[type="number"], textarea {
     width: 100%;
     padding: 12px 14px;
     border: 1px solid var(--border);
@@ -104,7 +104,7 @@
     resize: none;
   }
 
-  input[type="text"]:focus, textarea:focus {
+  input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
     border-color: var(--text);
   }
 
@@ -277,13 +277,6 @@
     line-height: 1.6;
   }
 
-  #imgPreview img {
-    width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-top: 16px;
-  }
-
   .preset-title { font-weight: 700; font-size: 15px; }
   .preset-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
   .answer-option.selected .preset-desc { color: #ccc; }
@@ -329,9 +322,68 @@
   .plan-add { margin: 14px 0 0; }
   .plan-count { font-size: 12px; color: var(--muted); margin-top: 10px; }
 
+  /* ── timer ── */
+  input[type="number"] { text-align: center; -moz-appearance: textfield; appearance: textfield; }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .time-box { margin-bottom: 24px; }
+  .time-row { display: flex; gap: 10px; }
+  .time-field { flex: 1; }
+  .time-field label { text-align: center; margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+  .time-hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+  .opt-box { margin-bottom: 24px; }
+  .check-row { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; font-weight: 500; color: var(--text); }
+  .check-row input { width: 20px; height: 20px; margin: 0; accent-color: var(--text); cursor: pointer; flex-shrink: 0; }
+  .q-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .q-row .q-counter { margin-bottom: 0; }
+  .timer-pill {
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    white-space: nowrap;
+  }
+  .timer-pill.low { color: var(--wrong); border-color: var(--wrong); }
+  .time-note { font-size: 13px; color: var(--wrong); margin: 4px 0 16px; line-height: 1.5; }
+
   #home { display: block; }
   #maker { display: none; }
   #taker { display: none; }
+  #live { display: none; }
+
+  /* ── live results ── */
+  #live { max-width: 1100px; }
+  .live-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 24px;
+  }
+  @media (max-width: 900px) { .live-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .live-grid { grid-template-columns: 1fr; } }
+  .live-empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
+  .mini-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    background: var(--bg);
+  }
+  .mini-name { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+  .mini-time { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+  .mini-score { font-size: 30px; font-weight: 800; line-height: 1; margin-bottom: 2px; }
+  .mini-grade { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .mini-breakdown {
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    margin-top: 4px;
+    max-height: 170px;
+    overflow-y: auto;
+  }
+  .mini-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 3px 0; }
+  .mini-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -367,6 +419,14 @@ const BODY_HTML = `
   <div class="brand">© Youssef Hisham 2026</div>
   <div id="takerContent"></div>
 </div>
+
+<!-- LIVE RESULTS -->
+<div class="card" id="live">
+  <div class="brand">© Youssef Hisham 2026</div>
+  <h1>Live Results</h1>
+  <p class="subtitle" id="liveStatus">Waiting for students to finish…</p>
+  <div class="live-grid" id="liveGrid"></div>
+</div>
 `;
 document.body.insertAdjacentHTML('afterbegin', BODY_HTML);
 
@@ -375,6 +435,7 @@ let quizData = null;       // the quiz students take
 let currentQ = {};         // question being built
 let questions = [];        // finished questions
 const MAX_QUESTIONS = 50;
+const MAX_TIME = 24 * 3600;   // longest time limit: 24 hours (in seconds)
 let plan = [];             // type of each question, in order: 'mc' or 'tf'
 let makerStage = 'setup';  // 'setup' -> 'custom' (optional) -> 'questions'
 let presetChoice = null;   // 'mix' | 'mc' | 'tf' | 'custom'
@@ -412,17 +473,26 @@ let quizLocked = false;
 let takerBusy = false;        // true while the correct/wrong flash is showing
 let previewMode = false;      // teacher trying the quiz
 let teacherMode = false;      // teacher panel is showing
-let resultImagePromise = null;
-let resultImageUrl = null;
-let resultSubmitted = false;
-let closeWarned = false;
-let sharing = false;
-let quizId = '';              // identifies this quiz on the student's device
+let resultSubmitted = false;  // this student's result has been sent to the live results server
+let quizId = '';              // identifies this quiz on the student's device / to the live results server
+let livePollId = null;        // live results screen: the setInterval id for polling
+let liveQuizId = '';          // live results screen: which quiz we're watching
 let restored = false;         // progress was restored from this device
+let quizTime = 0;             // seconds allowed for the quiz (0 = unlimited)
+let fullOrder = [];           // the order this student sees the questions (shuffled)
+let perms = [];               // per question: the order this student sees the 4 choices (shuffled), null for true / false
+let timerStart = 0;           // when this student pressed Start Quiz (ms)
+let timerId = null;
+let timeIsUp = false;
+let timeLimit = { h: 0, m: 0, s: 0 };   // maker: the limit being chosen
+let hideFlash = true;         // maker: hide the green / red flash after a student answers
+let quizHideFlash = false;    // taker: the quiz being taken hides the flash
+let shuffleOn = true;         // maker: shuffle question order and answer order for each student
+let quizShuffle = true;       // taker: the quiz being taken is shuffled
 
 // ── HELPERS ────────────────────────────────────────────
 function show(id) {
-  ['home','maker','taker'].forEach(x => document.getElementById(x).style.display = 'none');
+  ['home','maker','taker','live'].forEach(x => document.getElementById(x).style.display = 'none');
   document.getElementById(id).style.display = 'block';
 }
 
@@ -462,7 +532,22 @@ function validateQuiz(q) {
     }
   }
   const id = (typeof q.id === 'string' && /^[a-z0-9]{4,20}$/i.test(q.id)) ? q.id : '';
-  return { v: 1, id: id, questions: out };
+  let t = Number(q.t);
+  t = (Number.isFinite(t) && t > 0) ? Math.min(Math.floor(t), MAX_TIME) : 0;
+  return { v: 1, id: id, t: t, hf: q.hf === true, sh: q.sh !== false, questions: out };
+}
+
+function shuffled(arr) {                     // Fisher–Yates
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+function isPerm(a, n) {
+  return Array.isArray(a) && a.length === n && a.every(x => Number.isInteger(x) && x >= 0 && x < n) && new Set(a).size === n;
 }
 
 function hashStr(s) {
@@ -486,7 +571,7 @@ function progressKey() { return quizId ? 'qb1:' + quizId : ''; }
 function saveProgress() {
   if (previewMode || !progressKey()) return;
   try {
-    localStorage.setItem(progressKey(), JSON.stringify({ n: takerName, g: answerMap.map(a => a ? a.given : null), o: queue.slice() }));
+    localStorage.setItem(progressKey(), JSON.stringify({ n: takerName, g: answerMap.map(a => a ? a.given : null), o: queue.slice(), s: timerStart, f: fullOrder, p: perms, r: resultSubmitted }));
   } catch (e) {}
 }
 
@@ -624,6 +709,9 @@ function startMaker() {
   plan = [];
   presetChoice = null;
   makerStage = 'setup';
+  timeLimit = { h: 0, m: 0, s: 0 };
+  hideFlash = true;
+  shuffleOn = true;
   show('maker');
   renderMakerStep();
 }
@@ -802,7 +890,37 @@ function renderMakerStep() {
       <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">All ${plan.length} questions are in. Save the quiz to get a link for your students.</p>
       <div class="info-box">
         <strong>${mcCount} Multiple Choice</strong> + <strong>${tfCount} True / False</strong><br>
-        Students open your link, enter their name and answer. When they tap Submit, they send you a picture of their result on WhatsApp (or any app on their phone).
+        Students open your link, enter their name and answer. As soon as each student finishes, their result is sent to you automatically — watch them come in on the Live Results page.
+      </div>
+      <div class="time-box">
+        <label>Time limit</label>
+        <div class="time-row">
+          <div class="time-field">
+            <input type="number" id="tHr" inputmode="numeric" min="0" max="24" value="${timeLimit.h}" onfocus="this.select()" oninput="setTime('h', this.value)">
+            <label for="tHr">hr</label>
+          </div>
+          <div class="time-field">
+            <input type="number" id="tMin" inputmode="numeric" min="0" value="${timeLimit.m}" onfocus="this.select()" oninput="setTime('m', this.value)">
+            <label for="tMin">min</label>
+          </div>
+          <div class="time-field">
+            <input type="number" id="tSec" inputmode="numeric" min="0" value="${timeLimit.s}" onfocus="this.select()" oninput="setTime('s', this.value)">
+            <label for="tSec">sec</label>
+          </div>
+        </div>
+        <div class="time-hint" id="timeSummary">${timeSummaryText(timeLimitSeconds())}</div>
+      </div>
+      <div class="opt-box">
+        <div class="check-row">
+          <input type="checkbox" id="hideFlashBox" aria-label="Hide the green / red flash after each answer" ${hideFlash ? 'checked' : ''} onchange="setHideFlash(this.checked)">
+          <span>Hide the green / red flash after each answer</span>
+        </div>
+        <div class="time-hint">When ticked, students don’t see right away whether an answer was correct. They see it in their result at the end.</div>
+        <div class="check-row" style="margin-top:18px;">
+          <input type="checkbox" id="shuffleBox" aria-label="Shuffle the questions and the answers for each student" ${shuffleOn ? 'checked' : ''} onchange="setShuffle(this.checked)">
+          <span>Shuffle the questions and the answers for each student</span>
+        </div>
+        <div class="time-hint">When ticked, every student gets the questions in a different random order, and the choices of each multiple-choice question are mixed up. The right answer stays the one you picked.</div>
       </div>
       <button class="btn" id="saveBtn" onclick="saveQuiz()">Save Quiz &amp; Get Link →</button>
       <div style="margin-top:12px;">
@@ -817,6 +935,29 @@ function renderMakerStep() {
   const inp = document.getElementById('inp');
   if (inp) inp.focus();
 }
+
+// ── MAKER: time limit ──────────────────────────────────
+function timeLimitSeconds() { return timeLimit.h * 3600 + timeLimit.m * 60 + timeLimit.s; }
+
+function limitText(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return [h && (h + ' hr'), m && (m + ' min'), s && (s + ' sec')].filter(Boolean).join(' ');
+}
+
+function timeSummaryText(sec) {
+  if (sec > MAX_TIME) return 'The longest time limit is 24 hours.';
+  return sec ? 'Time limit: ' + limitText(sec) + '. The timer starts when a student taps Start Quiz.'
+             : 'No time limit (0 = unlimited). Students can take as long as they need.';
+}
+
+function setTime(part, val) {
+  timeLimit[part] = Math.max(0, parseInt(val, 10) || 0);
+  const el = document.getElementById('timeSummary');
+  if (el) el.textContent = timeSummaryText(timeLimitSeconds());
+}
+
+function setHideFlash(v) { hideFlash = !!v; }
+function setShuffle(v) { shuffleOn = !!v; }
 
 function mcNext() {
   const inp = document.getElementById('inp');
@@ -877,7 +1018,9 @@ function tfFinish() {
 
 // ── SAVE + SHARE LINK ──────────────────────────────────
 async function saveQuiz() {
-  const quiz = validateQuiz({ v: 1, id: newQuizId(), questions: questions });
+  const tl = timeLimitSeconds();
+  if (tl > MAX_TIME) { showMsg('The longest time limit is 24 hours.'); return; }
+  const quiz = validateQuiz({ v: 1, id: newQuizId(), t: tl, hf: hideFlash, sh: shuffleOn, questions: questions });
   if (!quiz) { showMsg('Something is wrong with the quiz. Please rebuild it.'); return; }
   const btn = document.getElementById('saveBtn');
 
@@ -932,7 +1075,7 @@ async function saveQuiz() {
     if (short) link = short;
     else note = 'Couldn’t shorten the link (' + linkWhy.join('; ') + '). This is the full link, and it works the same. [page ' + PAGE_VERSION + ']';
   }
-  renderLinkPanel(link);
+  renderLinkPanel(link, quiz.id);
   if (note) showMsg(note, 'msg');
 }
 
@@ -954,9 +1097,12 @@ async function shortenLink(url) {
   }
 }
 
-function renderLinkPanel(link) {
+function renderLinkPanel(link, id) {
   const fileNote = location.protocol === 'file:'
     ? '<p class="screenshot-hint" style="text-align:left;">This page is open from a file on your computer, so students can’t open this link. Put the page online first, then create the link again.</p>'
+    : '';
+  const liveBtn = id
+    ? `<div style="margin-top:12px;"><a class="btn btn-outline" href="#live=${esc(id)}" target="_blank" rel="noopener">Live Results →</a></div>`
     : '';
   document.getElementById('makerContent').innerHTML = `
     <h2>Your student link 🔗</h2>
@@ -966,6 +1112,8 @@ function renderLinkPanel(link) {
       <button class="btn" onclick="copyLink()">Copy Link</button>
       <button class="btn btn-outline" style="margin-left:10px;" onclick="renderMakerStep()">Back</button>
     </div>
+    ${liveBtn}
+    <p class="time-hint" style="margin-top:10px;">Live Results opens in a new tab and updates on its own as students finish — keep it open on your screen or projector.</p>
     <div class="msg" id="msg"></div>
     ${fileNote}`;
 }
@@ -1000,10 +1148,10 @@ function renderTeacherPanel() {
     <h1>Your quiz is live</h1>
     <p class="subtitle">Only you see this screen. Students who open this page’s link go straight to the quiz.</p>
     <div class="info-box">
-      <strong>${mc} Multiple Choice</strong> + <strong>${tf} True / False</strong><br><br>
+      <strong>${mc} Multiple Choice</strong> + <strong>${tf} True / False</strong><br>${quizTime ? '⏱ Time limit: ' + limitText(quizTime) : '⏱ No time limit'}<br>${quizHideFlash ? '👁 Green / red answer flash: hidden' : '👁 Green / red answer flash: shown'}<br>${quizShuffle ? '🔀 Questions and answers are shuffled for each student' : '🔀 Questions and answers are not shuffled'}<br><br>
       1. Copy this page’s link (use the share option where you opened it).<br>
       2. Send it to your students.<br>
-      3. Each student enters their name, answers, then taps <strong>Submit</strong> to send you a picture of their result on WhatsApp (or any app).
+      3. Each student enters their name and answers. Their result is sent to you automatically as soon as they finish.
     </div>
     <div style="display:flex; gap:12px;">
       <button class="btn" onclick="previewSaved()">Preview as Student</button>
@@ -1032,7 +1180,12 @@ function exitPreview() {
 
 // ── TAKER ──────────────────────────────────────────────
 function initQueue() {
-  queue = quizData ? quizData.map((_, i) => i) : [];
+  // Every student gets their own random question order and their own random order of the choices.
+  // (or, when the teacher unticked shuffling, everyone gets the quiz exactly as it was built)
+  const plain = quizData ? quizData.map((_, i) => i) : [];
+  fullOrder = quizShuffle ? shuffled(plain) : plain;
+  perms = quizData ? quizData.map(q => q.type === 'mc' ? (quizShuffle ? shuffled([0, 1, 2, 3]) : [0, 1, 2, 3]) : null) : [];
+  queue = fullOrder.slice();
   answerMap = quizData ? quizData.map(() => null) : [];
 }
 
@@ -1045,14 +1198,17 @@ function resetTaker() {
   quizLocked = false;
   takerBusy = false;
   resultSubmitted = false;
-  closeWarned = false;
-  sharing = false;
-  resultImagePromise = null;
-  if (resultImageUrl) { try { URL.revokeObjectURL(resultImageUrl); } catch (e) {} resultImageUrl = null; }
+  stopTimer();
+  timeIsUp = false;
+  timerStart = 0;
 }
 
 function activateTaker() {
+  if (timeLimitSeconds() > MAX_TIME) { showMsg('The longest time limit is 24 hours.'); return; }
   quizData = [...questions];
+  quizTime = timeLimitSeconds();
+  quizHideFlash = hideFlash;
+  quizShuffle = shuffleOn;
   previewMode = true;
   resetTaker();
   show('taker');
@@ -1074,6 +1230,7 @@ function renderTakerName() {
   document.getElementById('takerContent').innerHTML = `
     <h2>Welcome</h2>
     <p style="color:var(--muted);font-size:14px;margin-bottom:28px;">Enter your name before starting the quiz.</p>
+    ${quizTime ? `<div class="info-box">⏱ You have <strong>${limitText(quizTime)}</strong> to finish this quiz. The timer starts when you tap Start Quiz.</div>` : ''}
     <div class="name-input-wrap">
       <label>Your Name</label>
       <input type="text" dir="auto" id="studentName" placeholder="e.g. Ahmed Mohamed" maxlength="60">
@@ -1087,8 +1244,10 @@ function beginQuiz() {
   if (!n) { document.getElementById('studentName').style.borderColor='#b83232'; return; }
   takerName = n;
   takerStarted = true;
+  timerStart = Date.now();
   saveProgress();
   renderTakerQ();
+  startTimerTick();
 }
 
 function renderTakerQ() {
@@ -1101,15 +1260,22 @@ function renderTakerQ() {
 
   let html = `
     <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-    <div class="q-counter">Question ${idx+1} of ${total} · ${q.type==='mc'?'Multiple Choice':'True / False'}</div>
+    <div class="q-row">
+      <div class="q-counter">Question ${fullOrder.indexOf(idx)+1} of ${total} · ${q.type==='mc'?'Multiple Choice':'True / False'}</div>
+      ${quizTime ? '<div class="timer-pill" id="timerBox"></div>' : ''}
+    </div>
     <h2 dir="auto" style="margin-bottom:24px;">${esc(q.text)}</h2>`;
 
   if (q.type === 'mc') {
-    html += ['A','B','C','D'].map((l,i) => `
-      <div class="answer-option" onclick="selectAnswer('${l}')">
+    const pm = perms[idx] || [0, 1, 2, 3];      // slot i shows the choice that was originally number pm[i]
+    html += ['A','B','C','D'].map((l,i) => {
+      const orig = 'ABCD'[pm[i]];                // the letter you gave it when you built the quiz
+      return `
+      <div class="answer-option" data-orig="${orig}" onclick="selectAnswer('${orig}')">
         <span class="option-label">${l}</span>
-        <span dir="auto">${esc(q.choices[i])}</span>
-      </div>`).join('');
+        <span dir="auto">${esc(q.choices[pm[i]])}</span>
+      </div>`;
+    }).join('');
   } else {
     html += `<div class="tf-options">
       <button class="tf-btn" onclick="selectAnswer('True')">True</button>
@@ -1123,6 +1289,59 @@ function renderTakerQ() {
   }
 
   document.getElementById('takerContent').innerHTML = html;
+  if (quizTime) paintTimer(timeLeft());
+}
+
+// ── TIMER ──────────────────────────────────────────────
+// Counts from the moment Start Quiz was tapped (saved on the device, so a refresh doesn't reset it).
+function timeLeft() {
+  return Math.max(0, Math.ceil((quizTime * 1000 - (Date.now() - timerStart)) / 1000));
+}
+
+function fmtClock(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const p = n => String(n).padStart(2, '0');
+  return h ? h + ':' + p(m) + ':' + p(s) : p(m) + ':' + p(s);
+}
+
+function paintTimer(left) {
+  const box = document.getElementById('timerBox');
+  if (!box) return;
+  box.textContent = '⏱ ' + fmtClock(left);
+  box.classList.toggle('low', left <= Math.min(60, Math.ceil(quizTime / 5)));
+}
+
+function timerTick() {
+  const left = timeLeft();
+  paintTimer(left);
+  if (left <= 0) timeUp();
+}
+
+function startTimerTick() {
+  stopTimer();
+  if (!quizTime) return;
+  timerId = setInterval(timerTick, 1000);
+}
+
+function stopTimer() {
+  if (timerId) { clearInterval(timerId); timerId = null; }
+}
+
+// Time ran out: questions not answered yet count as wrong, and the result screen appears.
+function timeUp() {
+  stopTimer();
+  if (timeIsUp || quizLocked) return;
+  timeIsUp = true;
+  queue.forEach(i => {
+    const q = quizData[i];
+    answerMap[i] = { question: q.text, given: 'No answer', correct: q.answer, right: false };
+  });
+  queue = [];
+  takerAnswers = answerMap.slice();
+  quizLocked = true;
+  takerBusy = false;
+  saveProgress();
+  renderResult();
 }
 
 function skipQuestion() {
@@ -1150,18 +1369,19 @@ function selectAnswer(val) {
   // Highlight
   if (q.type === 'mc') {
     document.querySelectorAll('.answer-option').forEach(el => {
-      const l = el.querySelector('.option-label').textContent;
-      if (l === val) el.classList.add(isCorrect ? 'correct' : 'wrong');
-      if (l === q.answer && !isCorrect) el.classList.add('correct');
+      const l = el.getAttribute('data-orig');
+      if (l === val) el.classList.add(quizHideFlash ? 'selected' : (isCorrect ? 'correct' : 'wrong'));
+      if (!quizHideFlash && l === q.answer && !isCorrect) el.classList.add('correct');
     });
   } else {
     document.querySelectorAll('.tf-btn').forEach(el => {
-      if (el.textContent === val) el.classList.add(isCorrect ? 'correct' : 'wrong');
-      if (el.textContent === q.answer && !isCorrect) el.classList.add('correct');
+      if (el.textContent === val) el.classList.add(quizHideFlash ? 'selected' : (isCorrect ? 'correct' : 'wrong'));
+      if (!quizHideFlash && el.textContent === q.answer && !isCorrect) el.classList.add('correct');
     });
   }
 
   setTimeout(() => {
+    if (timeIsUp) return;                        // time ran out while the answer was showing
     if (queue.length === 0) {
       takerAnswers = answerMap.slice();          // results are listed in the original question order
       quizLocked = true;
@@ -1169,7 +1389,7 @@ function selectAnswer(val) {
     } else {
       renderTakerQ();
     }
-  }, 800);
+  }, quizHideFlash ? 400 : 800);
 }
 
 function renderResult() {
@@ -1178,9 +1398,8 @@ function renderResult() {
   const pct = Math.round((score / total) * 100);
   const grade = gradeFor(pct);
 
-  // Build the picture now so Submit can share it instantly (phones need the tap to still be "fresh")
-  resultImagePromise = buildResultImage();
-  resultImagePromise.catch(() => {});
+  stopTimer();
+  const timedOut = takerAnswers.some(a => a.given === 'No answer');
 
   let rows = takerAnswers.map((a,i) => `
     <div class="breakdown-row">
@@ -1188,28 +1407,58 @@ function renderResult() {
       <span class="${a.right?'correct-tag':'wrong-tag'}">${a.right?'✓ Correct':'✗ Wrong'}</span>
     </div>`).join('');
 
+  const statusText = previewMode ? '' : (resultSubmitted ? '✅ Your result has been sent to your teacher.' : '📤 Sending your result to your teacher…');
+
   document.getElementById('takerContent').innerHTML = `
     <div class="result-name" dir="auto">${esc(takerName)}</div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">© Youssef Hisham 2026</div>
     <div class="result-score">${score}/${total}</div>
     <div class="result-label">${grade} · ${pct}%</div>
+    ${timedOut ? '<p class="time-note">⏰ Time was up. Questions you didn’t answer were marked wrong.</p>' : ''}
     <div class="result-breakdown">${rows}</div>
-    <p class="screenshot-hint" id="submitHint">📤 Tap Submit, then choose WhatsApp (or any app) to send your result to your teacher.</p>
+    <p class="screenshot-hint" id="resultMsg">${statusText}</p>
     <div class="home-btns">
-      <button class="btn" id="submitBtn" onclick="submitResult()">Submit Result</button>
-      <button class="btn btn-outline" onclick="closeQuiz()">${previewMode ? 'Exit Preview' : 'Close Quiz'}</button>
-    </div>
-    <div class="msg" id="submitStatus"></div>
-    <div id="imgPreview"></div>`;
+      <button class="btn" onclick="closeQuiz()">${previewMode ? 'Exit Preview' : 'Close Quiz'}</button>
+    </div>`;
+
+  if (!previewMode) reportResult();
+}
+
+// Sends this student's result to the live results server. Silent — the student
+// doesn't need to do anything. Retries once if the first attempt fails.
+async function reportResult() {
+  if (previewMode || resultSubmitted || !quizId) return;
+  const payload = {
+    id: quizId,
+    name: takerName,
+    score: takerAnswers.filter(a => a.right).length,
+    total: takerAnswers.length,
+    breakdown: takerAnswers.map(a => ({ q: a.question, r: a.right }))
+  };
+  const trySend = async () => {
+    try {
+      const r = await fetch(SHORT_API + '/submit-result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return r.ok;
+    } catch (e) { return false; }
+  };
+  let ok = await trySend();
+  if (!ok) { await new Promise(res => setTimeout(res, 4000)); ok = await trySend(); }
+  const el = document.getElementById('resultMsg');
+  if (ok) {
+    resultSubmitted = true;
+    saveProgress();
+    if (el) el.textContent = '✅ Your result has been sent to your teacher.';
+  } else if (el) {
+    el.textContent = '⚠️ Could not reach the server. Please tell your teacher your score directly: ' + payload.score + '/' + payload.total + '.';
+  }
 }
 
 function closeQuiz() {
   if (previewMode) { exitPreview(); return; }
-  if (!resultSubmitted && !closeWarned) {
-    closeWarned = true;
-    showMsg('You haven’t sent your result yet. Tap Close Quiz again to leave without sending.', 'submitStatus');
-    return;
-  }
   renderLocked();
 }
 
@@ -1222,200 +1471,58 @@ function renderLocked() {
     </div>`;
 }
 
-// ── RESULT PICTURE + SHARE ─────────────────────────────
-function roundRectPath(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
+// ── LIVE RESULTS (teacher's screen) ────────────────────
+function startLiveResults(id) {
+  liveQuizId = id;
+  show('live');
+  renderLiveResults([]);
+  pollLiveResults();
+  if (livePollId) clearInterval(livePollId);
+  livePollId = setInterval(pollLiveResults, 3000);
 }
 
-function fitText(ctx, text, maxW) {
-  if (ctx.measureText(text).width <= maxW) return text;
-  let t = text;
-  while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
-  return t.replace(/\s+$/, '') + '…';
-}
-
-function buildResultImage() {
-  return new Promise((resolve, reject) => {
-    try {
-      const FONT = '"Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif';
-      const W = 1080, M = 40, P = 64;
-      const X0 = M + P, IW = W - 2 * M - 2 * P;
-      const score = takerAnswers.filter(a => a.right).length;
-      const total = takerAnswers.length;
-      const pct = Math.round((score / total) * 100);
-      const grade = gradeFor(pct);
-      const ROW = 84, EXTRA = 40, HEADER = 460;
-      const rowsH = takerAnswers.reduce((h, a) => h + ROW + (a.right ? 0 : EXTRA), 0);
-      const H = M + P + HEADER + rowsH + P + M;
-
-      const canvas = document.createElement('canvas');
-      canvas.width = W;
-      canvas.height = H;
-      const ctx = canvas.getContext('2d');
-
-      ctx.fillStyle = '#FAFAF8';
-      ctx.fillRect(0, 0, W, H);
-      roundRectPath(ctx, M, M, W - 2 * M, H - 2 * M, 28);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#E0E0DC';
-      ctx.stroke();
-
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      let y = M + P;
-
-      ctx.font = '500 24px ' + FONT;
-      ctx.fillStyle = '#888888';
-      ctx.fillText('© Youssef Hisham 2026', X0, y);
-      y += 24 + 44;
-
-      ctx.font = '700 56px ' + FONT;
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillText(fitText(ctx, takerName, IW), X0, y);
-      y += 56 + 12;
-
-      let dateStr;
-      try { dateStr = new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }); }
-      catch (e) { dateStr = new Date().toLocaleString(); }
-      ctx.font = '400 26px ' + FONT;
-      ctx.fillStyle = '#888888';
-      ctx.fillText(dateStr, X0, y);
-      y += 26 + 24;
-
-      ctx.font = '800 180px ' + FONT;
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillText(score + '/' + total, X0, y);
-      y += 180 + 8;
-
-      ctx.font = '400 30px ' + FONT;
-      ctx.fillStyle = '#888888';
-      ctx.fillText(grade + ' · ' + pct + '%', X0, y);
-      y += 30 + 36;
-
-      ctx.fillStyle = '#E0E0DC';
-      ctx.fillRect(X0, y, IW, 2);
-      y += 20;
-
-      ctx.textBaseline = 'middle';
-      takerAnswers.forEach((a, i) => {
-        const rh = ROW + (a.right ? 0 : EXTRA);
-        const mainY = y + (a.right ? ROW / 2 : 38);
-
-        const status = a.right ? '✓ Correct' : '✗ Wrong';
-        ctx.font = '700 30px ' + FONT;
-        const sw = ctx.measureText(status).width;
-        ctx.textAlign = 'right';
-        ctx.fillStyle = a.right ? '#2d7a4f' : '#b83232';
-        ctx.fillText(status, X0 + IW, mainY);
-
-        ctx.textAlign = 'left';
-        ctx.font = '500 30px ' + FONT;
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillText(fitText(ctx, 'Q' + (i + 1) + ': ' + a.question, IW - sw - 32), X0, mainY);
-
-        if (!a.right) {
-          ctx.font = '400 24px ' + FONT;
-          ctx.fillStyle = '#888888';
-          ctx.fillText(fitText(ctx, 'Answered ' + a.given + '  ·  Correct answer ' + a.correct, IW), X0, y + 78);
-        }
-
-        ctx.fillStyle = '#E0E0DC';
-        ctx.fillRect(X0, y + rh - 1, IW, 1);
-        y += rh;
-      });
-
-      canvas.toBlob(b => b ? resolve(b) : reject(new Error('Could not create image')), 'image/png');
-    } catch (e) {
-      reject(e);
-    }
-  });
-}
-
-function resultFileName() {
-  const slug = takerName.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'student';
-  return 'quiz-result-' + slug + '.png';
-}
-
-async function submitResult() {
-  if (sharing) return;
-  const btn = document.getElementById('submitBtn');
-  sharing = true;
-  if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
-  const finish = () => {
-    sharing = false;
-    if (btn) { btn.disabled = false; btn.textContent = resultSubmitted ? 'Submit Again' : 'Submit Result'; }
-  };
-
-  let blob;
+async function pollLiveResults() {
+  if (!liveQuizId) return;
   try {
-    blob = await resultImagePromise;
-  } catch (e) {
-    showMsg('Sorry, the result picture could not be created. Please take a screenshot of this page instead.', 'submitStatus');
-    finish();
+    const r = await fetch(SHORT_API + '/results?id=' + encodeURIComponent(liveQuizId));
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d && Array.isArray(d.results)) renderLiveResults(d.results);
+  } catch (e) {}
+}
+
+function renderLiveResults(list) {
+  const grid = document.getElementById('liveGrid');
+  const status = document.getElementById('liveStatus');
+  if (!grid || !status) return;
+  if (!list.length) {
+    status.textContent = 'Waiting for students to finish… this page updates on its own.';
+    grid.innerHTML = '';
     return;
   }
-
-  const fname = resultFileName();
-  const score = takerAnswers.filter(a => a.right).length;
-  let file = null;
-  try { file = new File([blob], fname, { type: 'image/png' }); } catch (e) {}
-  const data = file ? { files: [file], title: 'Quiz result', text: takerName + ' — ' + score + '/' + takerAnswers.length } : null;
-
-  // 1) The phone's share sheet (WhatsApp, Telegram, email, ...)
-  if (data && navigator.share && navigator.canShare && navigator.canShare(data)) {
-    try {
-      await navigator.share(data);
-      resultSubmitted = true;
-      showMsg('Result shared ✓ If you didn’t finish sending it, tap Submit Again.', 'submitStatus', true);
-      finish();
-      return;
-    } catch (e) {
-      if (e && e.name === 'AbortError') { finish(); return; }   // student closed the share sheet
-      // any other failure: fall through and save the picture instead
-    }
-  }
-
-  // 2) No share sheet here: save the picture so it can be sent from the gallery
-  await saveResultImage(blob, fname);
-  finish();
+  status.textContent = list.length + (list.length === 1 ? ' student has' : ' students have') + ' submitted so far. This page updates automatically.';
+  const ordered = list.slice().reverse();   // newest first
+  grid.innerHTML = ordered.map(miniResultCard).join('');
 }
 
-async function saveResultImage(blob, fname) {
-  let saved = false;
-  try {
-    const dl = (window.claude && window.claude.use) ? await window.claude.use('downloads') : null;
-    if (dl) { await dl.save({ filename: fname, data: blob }); saved = true; }
-  } catch (e) {
-    if (e && e.code === 'declined') return;
-  }
-  if (!saved) {
-    try {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = fname;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      saved = true;
-    } catch (e) {}
-  }
-
-  if (!resultImageUrl) resultImageUrl = URL.createObjectURL(blob);
-  const box = document.getElementById('imgPreview');
-  if (box) box.innerHTML = '<img alt="Your quiz result" src="' + resultImageUrl + '">';
-  resultSubmitted = true;
-  showMsg(
-    'Sharing isn’t available here. Save the picture below (press and hold it if it didn’t download), then send it to your teacher on WhatsApp.',
-    'submitStatus', true
-  );
+function miniResultCard(res) {
+  const pct = Math.round((res.s / res.t) * 100);
+  const grade = gradeFor(pct);
+  let time = '';
+  try { time = res.ts ? new Date(res.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; } catch (e) {}
+  const rows = (Array.isArray(res.b) ? res.b : []).map((row, i) => `
+    <div class="mini-row">
+      <span dir="auto">Q${i+1}: ${esc(row.q)}</span>
+      <span class="${row.r?'correct-tag':'wrong-tag'}">${row.r?'✓':'✗'}</span>
+    </div>`).join('');
+  return `
+    <div class="mini-card">
+      <div class="mini-name" dir="auto">${esc(res.n)}</div>
+      <div class="mini-time">${time}</div>
+      <div class="mini-score">${res.s}/${res.t}</div>
+      <div class="mini-grade">${grade} · ${pct}%</div>
+      <div class="mini-breakdown">${rows}</div>
+    </div>`;
 }
 
 // ── START ──────────────────────────────────────────────
@@ -1427,10 +1534,18 @@ try {
 } catch (e) {}
 
 (async () => {
+const liveMatch = location.hash.match(/^#live=([a-z0-9]{4,20})$/i);
+if (liveMatch) {
+  startLiveResults(liveMatch[1]);
+  return;
+}
 const shared = await loadSharedQuiz();
 if (shared) {
   quizData = shared.quiz.questions;
   quizId = shared.quiz.id || ('h' + hashStr(JSON.stringify(shared.quiz.questions)));
+  quizTime = shared.quiz.t || 0;
+  quizHideFlash = shared.quiz.hf === true;
+  quizShuffle = shared.quiz.sh !== false;
   initQueue();
   show('taker');
   const saved = loadProgress();
@@ -1439,7 +1554,11 @@ if (shared) {
     restored = true;
     takerName = saved.n;
     takerStarted = true;
+    timerStart = (typeof saved.s === 'number' && saved.s > 0) ? saved.s : Date.now();
     initQueue();
+    // Same shuffle as before the refresh (notes saved by an older version had none: keep the plain order)
+    fullOrder = isPerm(saved.f, quizData.length) ? saved.f.slice() : quizData.map((_, i) => i);
+    perms = quizData.map((q, i) => q.type !== 'mc' ? null : ((Array.isArray(saved.p) && isPerm(saved.p[i], 4)) ? saved.p[i].slice() : [0, 1, 2, 3]));
     quizData.forEach((q, i) => {
       const given = saved.g[i];
       if (typeof given === 'string') answerMap[i] = { question: q.text, given: given, correct: q.answer, right: given === q.answer };
@@ -1451,10 +1570,13 @@ if (shared) {
     if (queue.length === 0) {
       takerAnswers = answerMap.slice();
       quizLocked = true;
+      resultSubmitted = saved.r === true;
       renderResult();
-      showMsg('You already completed this quiz on this device. You can send your result again below.', 'submitStatus', true);
+    } else if (quizTime && Date.now() - timerStart >= quizTime * 1000) {
+      timeUp();                                   // time ran out while the student was away
     } else {
       renderTakerQ();
+      startTimerTick();
     }
   } else {
     renderTakerName();
