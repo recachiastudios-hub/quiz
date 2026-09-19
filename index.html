@@ -517,14 +517,49 @@ function decodeQuiz(s) {
 // ── SHORT + ENCRYPTED LINKS ────────────────────────────
 // The encryption lives in quiz-crypto.js (same folder as this page).
 // If that file is missing, links fall back to the older, longer format.
+// Link server (Cloudflare Worker) that turns a quiz into a short code like  #s=k8f3x2
+const SHORT_API = 'https://purple-art-a864.recachiastudios.workers.dev';
+
+async function serverSave(data) {
+  if (!SHORT_API) return null;
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(SHORT_API + '/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: data }),
+      signal: ctl.signal
+    });
+    clearTimeout(timer);
+    const d = await r.json();
+    return (d && typeof d.code === 'string' && /^[a-z0-9]{4,12}$/.test(d.code)) ? d.code : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function cryptoReady() {
   return !!(window.QuizCrypto && window.crypto && crypto.subtle && typeof CompressionStream !== 'undefined');
 }
 
 async function loadSharedQuiz() {
   const h = location.hash;
-  if (/^#(q|quiz)=/.test(h)) {
+  if (/^#(q|quiz|s)=/.test(h)) {
     try {
+      const ms = h.match(/^#s=([a-z0-9]{4,12})$/);
+      if (ms) {
+        if (!cryptoReady() || !SHORT_API) {
+          showMsg('This page can’t open the quiz. The file quiz-crypto.js must be in the same folder as index.html.', 'homeMsg');
+          return null;
+        }
+        showMsg('Loading quiz…', 'homeMsg', true);
+        const r = await fetch(SHORT_API + '/get?c=' + ms[1]);
+        if (!r.ok) throw new Error('not found');
+        const d = await r.json();
+        const q = validateQuiz(await window.QuizCrypto.decode(d.data));
+        if (q) { showMsg('', 'homeMsg'); return { quiz: q, source: 'link' }; }
+      }
       const m = h.match(/^#q=([A-Za-z0-9_-]+)$/);
       if (m) {
         if (!cryptoReady()) {
@@ -540,7 +575,7 @@ async function loadSharedQuiz() {
         if (q) return { quiz: q, source: 'link' };
       }
     } catch (e) {}
-    showMsg('This quiz link looks incomplete or damaged. Ask your teacher to send it again.', 'homeMsg');
+    showMsg('This quiz link is incomplete, damaged or couldn’t be loaded. Check your internet connection or ask your teacher to send it again.', 'homeMsg');
     return null;
   }
   try {
@@ -861,9 +896,11 @@ async function saveQuiz() {
   // Standalone copy of the page: put the quiz inside the link itself.
   const base = location.href.split('#')[0];
   let link;
+  let secureData = null;
   try {
     if (!cryptoReady()) throw new Error('no crypto file');
-    link = base + '#q=' + await window.QuizCrypto.encode(quiz);
+    secureData = await window.QuizCrypto.encode(quiz);
+    link = base + '#q=' + secureData;
   } catch (e) {
     link = base + '#quiz=' + encodeQuiz(quiz);   // browser can't encrypt: use the older, longer link
   }
@@ -871,7 +908,12 @@ async function saveQuiz() {
   const isLocal = location.protocol === 'file:' || /^(localhost|127\.|192\.168\.)/.test(location.hostname);
   if (!isLocal) {
     if (btn) { btn.disabled = true; btn.textContent = 'Creating link…'; }
-    const short = await shortenLink(link);
+    let short = null;
+    if (secureData) {
+      const code = await serverSave(secureData);      // 1) our own link server: #s=code
+      if (code) short = base + '#s=' + code;
+    }
+    if (!short) short = await shortenLink(link);      // 2) backup: is.gd
     if (short) link = short;
     else note = 'Couldn’t shorten the link right now, so this is the full link. It works the same.';
   }
