@@ -283,6 +283,51 @@
     margin-top: 16px;
   }
 
+  .preset-title { font-weight: 700; font-size: 15px; }
+  .preset-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .answer-option.selected .preset-desc { color: #ccc; }
+
+  .plan-list { margin-bottom: 8px; }
+  .plan-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .plan-num { font-weight: 600; }
+  .plan-right { display: flex; align-items: center; gap: 8px; }
+  .type-toggle { display: flex; gap: 6px; }
+  .type-toggle button {
+    padding: 6px 12px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .type-toggle button:hover { border-color: #bbb; }
+  .type-toggle button.selected { border-color: var(--text); background: var(--text); color: #fff; }
+  .plan-remove {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 4px 6px;
+    font-family: var(--font);
+  }
+  .plan-remove:hover { color: var(--wrong); }
+  .plan-add { margin: 14px 0 0; }
+  .plan-count { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
   #home { display: block; }
   #maker { display: none; }
   #taker { display: none; }
@@ -290,6 +335,7 @@
 </head>
 <body>
 <script type="application/json" id="quiz-data">null</script>
+<script src="quiz-crypto.js"></script>
 <script id="app-js">
 const PAGE_TITLE = 'Quiz Builder — Youssef Hisham';
 
@@ -327,9 +373,24 @@ document.body.insertAdjacentHTML('afterbegin', BODY_HTML);
 let quizData = null;       // the quiz students take
 let currentQ = {};         // question being built
 let questions = [];        // finished questions
-const MC_COUNT = 5;
-const TF_COUNT = 5;
-const TOTAL = MC_COUNT + TF_COUNT;
+const MAX_QUESTIONS = 50;
+let plan = [];             // type of each question, in order: 'mc' or 'tf'
+let makerStage = 'setup';  // 'setup' -> 'custom' (optional) -> 'questions'
+let presetChoice = null;   // 'mix' | 'mc' | 'tf' | 'custom'
+let customPlan = [];       // rows in the custom list
+
+const PRESETS = [
+  { id: 'mix',    title: 'Mixed',            desc: '5 multiple choice + 5 true / false' },
+  { id: 'mc',     title: 'All multiple choice', desc: '10 questions with 4 options each' },
+  { id: 'tf',     title: 'All true / false', desc: '10 statements to mark true or false' },
+  { id: 'custom', title: 'Custom',           desc: 'Choose the type of each question yourself' }
+];
+
+function presetPlan(id) {
+  if (id === 'mix') return ['mc','mc','mc','mc','mc','tf','tf','tf','tf','tf'];
+  if (id === 'mc')  return Array(10).fill('mc');
+  return Array(10).fill('tf');
+}
 
 // Maker sub-steps per MC question:
 // 0=question text, 1=A, 2=B, 3=C, 4=D, 5=answer
@@ -453,14 +514,35 @@ function decodeQuiz(s) {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-function loadSharedQuiz() {
-  try {
-    const m = location.hash.match(/^#quiz=([A-Za-z0-9_-]+)$/);
-    if (m) {
-      const q = validateQuiz(decodeQuiz(m[1]));
-      if (q) return { quiz: q, source: 'link' };
-    }
-  } catch (e) {}
+// ── SHORT + ENCRYPTED LINKS ────────────────────────────
+// The encryption lives in quiz-crypto.js (same folder as this page).
+// If that file is missing, links fall back to the older, longer format.
+function cryptoReady() {
+  return !!(window.QuizCrypto && window.crypto && crypto.subtle && typeof CompressionStream !== 'undefined');
+}
+
+async function loadSharedQuiz() {
+  const h = location.hash;
+  if (/^#(q|quiz)=/.test(h)) {
+    try {
+      const m = h.match(/^#q=([A-Za-z0-9_-]+)$/);
+      if (m) {
+        if (!cryptoReady()) {
+          showMsg('This page can’t open the quiz. The file quiz-crypto.js must be in the same folder as index.html.', 'homeMsg');
+          return null;
+        }
+        const q = validateQuiz(await window.QuizCrypto.decode(m[1]));
+        if (q) return { quiz: q, source: 'link' };
+      }
+      const m2 = h.match(/^#quiz=([A-Za-z0-9_-]+)$/);
+      if (m2) {
+        const q = validateQuiz(decodeQuiz(m2[1]));
+        if (q) return { quiz: q, source: 'link' };
+      }
+    } catch (e) {}
+    showMsg('This quiz link looks incomplete or damaged. Ask your teacher to send it again.', 'homeMsg');
+    return null;
+  }
   try {
     const el = document.getElementById('quiz-data');
     const txt = el ? el.textContent.trim() : '';
@@ -491,15 +573,115 @@ function startMaker() {
   qIndex = 0;
   subStep = 0;
   currentQ = {};
+  plan = [];
+  presetChoice = null;
+  makerStage = 'setup';
   show('maker');
   renderMakerStep();
 }
 
+// ── MAKER: choose a format ─────────────────────────────
+function renderSetup() {
+  setProgress(0);
+  document.getElementById('makerContent').innerHTML = `
+    <h2>Choose a quiz format</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Pick a ready-made format or build your own.</p>
+    ${PRESETS.map(p => `
+      <div class="answer-option ${presetChoice===p.id?'selected':''}" onclick="selectPreset('${p.id}')">
+        <div>
+          <div class="preset-title">${p.title}</div>
+          <div class="preset-desc">${p.desc}</div>
+        </div>
+      </div>`).join('')}
+    <div style="margin-top:24px;">
+      <button class="btn btn-outline" onclick="show('home')">Back</button>
+      <button class="btn" onclick="setupNext()">Next →</button>
+    </div>
+    <div class="msg" id="msg"></div>`;
+}
+
+function selectPreset(id) {
+  presetChoice = id;
+  renderMakerStep();
+}
+
+function setupNext() {
+  if (!presetChoice) { showMsg('Please choose a format.'); return; }
+  if (presetChoice === 'custom') {
+    if (!customPlan.length) customPlan = Array(10).fill('mc');
+    makerStage = 'custom';
+    renderMakerStep();
+    return;
+  }
+  beginQuestions(presetPlan(presetChoice));
+}
+
+function beginQuestions(p) {
+  plan = p.slice();
+  questions = [];
+  qIndex = 0;
+  subStep = 0;
+  currentQ = {};
+  makerStage = 'questions';
+  renderMakerStep();
+}
+
+// ── MAKER: custom list ─────────────────────────────────
+function renderCustom() {
+  setProgress(0);
+  const rows = customPlan.map((t, i) => `
+    <div class="plan-row">
+      <span class="plan-num">Q${i+1}</span>
+      <div class="plan-right">
+        <div class="type-toggle">
+          <button class="${t==='mc'?'selected':''}" onclick="setCustomType(${i},'mc')">Choice</button>
+          <button class="${t==='tf'?'selected':''}" onclick="setCustomType(${i},'tf')">T / F</button>
+        </div>
+        <button class="plan-remove" aria-label="Remove question ${i+1}" onclick="removeCustom(${i})">✕</button>
+      </div>
+    </div>`).join('');
+  const mc = customPlan.filter(t => t === 'mc').length;
+  const tf = customPlan.length - mc;
+  document.getElementById('makerContent').innerHTML = `
+    <h2>Custom quiz</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Choose the type of each question. T / F means true or false.</p>
+    <div class="plan-list">${rows}</div>
+    <button class="btn btn-outline plan-add" onclick="addCustom()" ${customPlan.length>=MAX_QUESTIONS?'disabled':''}>+ Add question</button>
+    <div class="plan-count">${mc} multiple choice · ${tf} true / false</div>
+    <div style="margin-top:24px;">
+      <button class="btn btn-outline" onclick="customBack()">Back</button>
+      <button class="btn" onclick="customNext()">Next →</button>
+    </div>
+    <div class="msg" id="msg"></div>`;
+}
+
+function setCustomType(i, t) { customPlan[i] = t; renderCustom(); }
+
+function addCustom() {
+  if (customPlan.length >= MAX_QUESTIONS) return;
+  customPlan.push('mc');
+  renderCustom();
+}
+
+function removeCustom(i) {
+  if (customPlan.length <= 1) { showMsg('A quiz needs at least one question.'); return; }
+  customPlan.splice(i, 1);
+  renderCustom();
+}
+
+function customBack() { makerStage = 'setup'; renderMakerStep(); }
+function customNext() { beginQuestions(customPlan); }
+
 function renderMakerStep() {
-  const isMC = qIndex < MC_COUNT;
-  const isTF = qIndex >= MC_COUNT && qIndex < TOTAL;
+  if (makerStage === 'setup')  { renderSetup();  return; }
+  if (makerStage === 'custom') { renderCustom(); return; }
+
+  const isMC = qIndex < plan.length && plan[qIndex] === 'mc';
+  const isTF = qIndex < plan.length && plan[qIndex] === 'tf';
   const qNum = qIndex + 1;
-  const progress = Math.round((qIndex / TOTAL) * 100);
+  const mcCount = plan.filter(t => t === 'mc').length;
+  const tfCount = plan.length - mcCount;
+  const progress = Math.round((qIndex / plan.length) * 100);
   setProgress(progress);
 
   let html = '';
@@ -507,7 +689,7 @@ function renderMakerStep() {
   if (isMC) {
     if (subStep === 0) {
       html = `
-        <div class="q-counter">Multiple Choice — Question ${qNum} of ${MC_COUNT}</div>
+        <div class="q-counter">Multiple Choice — Question ${qNum} of ${plan.length}</div>
         <h2>Question ${qNum}</h2>
         <label>Type the question</label>
         <textarea id="inp" dir="auto" rows="3" placeholder="e.g. What is the capital of Egypt?"></textarea>
@@ -517,7 +699,7 @@ function renderMakerStep() {
     } else if (subStep >= 1 && subStep <= 4) {
       const letter = ['A','B','C','D'][subStep-1];
       html = `
-        <div class="q-counter">Multiple Choice — Question ${qNum} of ${MC_COUNT}</div>
+        <div class="q-counter">Multiple Choice — Question ${qNum} of ${plan.length}</div>
         <h2>Question ${qNum}</h2>
         <p dir="auto" style="margin-bottom:20px;font-size:15px;color:#444;">${esc(currentQ.text)}</p>
         <label>Option ${letter}</label>
@@ -527,7 +709,7 @@ function renderMakerStep() {
         </div>`;
     } else if (subStep === 5) {
       html = `
-        <div class="q-counter">Multiple Choice — Question ${qNum} of ${MC_COUNT}</div>
+        <div class="q-counter">Multiple Choice — Question ${qNum} of ${plan.length}</div>
         <h2>Correct Answer?</h2>
         <p dir="auto" style="margin-bottom:20px;font-size:15px;color:#444;">${esc(currentQ.text)}</p>
         ${['A','B','C','D'].map((l,i) => `
@@ -541,10 +723,10 @@ function renderMakerStep() {
         <div class="msg" id="msg"></div>`;
     }
   } else if (isTF) {
-    const tfNum = qIndex - MC_COUNT + 1;
+    const tfNum = qNum;
     if (subStep === 0) {
       html = `
-        <div class="q-counter">True / False — Question ${tfNum} of ${TF_COUNT}</div>
+        <div class="q-counter">True / False — Question ${tfNum} of ${plan.length}</div>
         <h2>Question ${tfNum}</h2>
         <label>Type the statement</label>
         <textarea id="inp" dir="auto" rows="3" placeholder="e.g. The internet is a type of Recording Media."></textarea>
@@ -553,7 +735,7 @@ function renderMakerStep() {
         </div>`;
     } else if (subStep === 1) {
       html = `
-        <div class="q-counter">True / False — Question ${tfNum} of ${TF_COUNT}</div>
+        <div class="q-counter">True / False — Question ${tfNum} of ${plan.length}</div>
         <h2>Correct Answer?</h2>
         <p dir="auto" style="margin-bottom:20px;font-size:15px;color:#444;">${esc(currentQ.text)}</p>
         <div class="tf-options">
@@ -569,9 +751,9 @@ function renderMakerStep() {
     // All done — save + share
     html = `
       <h2>Quiz Ready! 🎉</h2>
-      <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">All ${TOTAL} questions are in. Save the quiz to get a link for your students.</p>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">All ${plan.length} questions are in. Save the quiz to get a link for your students.</p>
       <div class="info-box">
-        <strong>5 Multiple Choice</strong> + <strong>5 True / False</strong><br>
+        <strong>${mcCount} Multiple Choice</strong> + <strong>${tfCount} True / False</strong><br>
         Students open your link, enter their name and answer. When they tap Submit, they send you a picture of their result on WhatsApp (or any app on their phone).
       </div>
       <button class="btn" id="saveBtn" onclick="saveQuiz()">Save Quiz &amp; Get Link →</button>
@@ -677,8 +859,39 @@ async function saveQuiz() {
   }
 
   // Standalone copy of the page: put the quiz inside the link itself.
-  const link = location.href.split('#')[0] + '#quiz=' + encodeQuiz(quiz);
+  const base = location.href.split('#')[0];
+  let link;
+  try {
+    if (!cryptoReady()) throw new Error('no crypto file');
+    link = base + '#q=' + await window.QuizCrypto.encode(quiz);
+  } catch (e) {
+    link = base + '#quiz=' + encodeQuiz(quiz);   // browser can't encrypt: use the older, longer link
+  }
+  let note = '';
+  const isLocal = location.protocol === 'file:' || /^(localhost|127\.|192\.168\.)/.test(location.hostname);
+  if (!isLocal) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating link…'; }
+    const short = await shortenLink(link);
+    if (short) link = short;
+    else note = 'Couldn’t shorten the link right now, so this is the full link. It works the same.';
+  }
   renderLinkPanel(link);
+  if (note) showMsg(note, 'msg');
+}
+
+// Shortens automatically with the free is.gd service. Returns null on any problem,
+// and the full link is used instead.
+async function shortenLink(url) {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 7000);
+    const r = await fetch('https://is.gd/create.php?format=json&url=' + encodeURIComponent(url), { signal: ctl.signal });
+    clearTimeout(timer);
+    const d = await r.json();
+    return (d && typeof d.shorturl === 'string' && d.shorturl.indexOf('https://is.gd/') === 0) ? d.shorturl : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 function renderLinkPanel(link) {
@@ -687,7 +900,7 @@ function renderLinkPanel(link) {
     : '';
   document.getElementById('makerContent').innerHTML = `
     <h2>Your student link 🔗</h2>
-    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Send this link to your students. The quiz is stored inside it.</p>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Send this link to your students. The quiz is compressed and encrypted inside it, so the answers can’t be read from the link.</p>
     <input type="text" id="linkBox" readonly value="${esc(link)}" onclick="this.select()">
     <div style="margin-top:20px;">
       <button class="btn" onclick="copyLink()">Copy Link</button>
@@ -1153,7 +1366,8 @@ try {
   });
 } catch (e) {}
 
-const shared = loadSharedQuiz();
+(async () => {
+const shared = await loadSharedQuiz();
 if (shared) {
   quizData = shared.quiz.questions;
   quizId = shared.quiz.id || ('h' + hashStr(JSON.stringify(shared.quiz.questions)));
@@ -1187,6 +1401,7 @@ if (shared) {
   }
   if (shared.source === 'page') detectTeacher();
 }
+})();
 </script>
 </body>
 </html>
