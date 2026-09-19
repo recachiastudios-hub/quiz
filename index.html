@@ -520,8 +520,11 @@ function decodeQuiz(s) {
 // Link server (Cloudflare Worker) that turns a quiz into a short code like  #s=k8f3x2
 const SHORT_API = 'https://purple-art-a864.recachiastudios.workers.dev';
 
+const PAGE_VERSION = 'v4';
+let linkWhy = [];   // reasons a link could not be shortened (shown to the teacher)
+
 async function serverSave(data) {
-  if (!SHORT_API) return null;
+  if (!SHORT_API) { linkWhy.push('server address missing'); return null; }
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 8000);
@@ -533,10 +536,19 @@ async function serverSave(data) {
     });
     clearTimeout(timer);
     const d = await r.json();
-    return (d && typeof d.code === 'string' && /^[a-z0-9]{4,12}$/.test(d.code)) ? d.code : null;
+    if (d && typeof d.code === 'string' && /^[a-z0-9]{4,12}$/.test(d.code)) return d.code;
+    linkWhy.push('server said ' + r.status + ' ' + ((d && d.error) || 'no code'));
+    return null;
   } catch (e) {
+    linkWhy.push('server: ' + (e && e.name === 'AbortError' ? 'timed out' : (e && e.message) || 'failed'));
     return null;
   }
+}
+
+function cryptoWhy() {
+  if (!window.QuizCrypto) return 'quiz-crypto.js did not load';
+  if (!(window.crypto && crypto.subtle)) return 'browser has no encryption here (needs https)';
+  return 'browser too old for compression';
 }
 
 function cryptoReady() {
@@ -897,11 +909,13 @@ async function saveQuiz() {
   const base = location.href.split('#')[0];
   let link;
   let secureData = null;
+  linkWhy = [];
   try {
-    if (!cryptoReady()) throw new Error('no crypto file');
+    if (!cryptoReady()) throw new Error(cryptoWhy());
     secureData = await window.QuizCrypto.encode(quiz);
     link = base + '#q=' + secureData;
   } catch (e) {
+    linkWhy.push('encryption: ' + ((e && e.message) || 'failed'));
     link = base + '#quiz=' + encodeQuiz(quiz);   // browser can't encrypt: use the older, longer link
   }
   let note = '';
@@ -915,7 +929,7 @@ async function saveQuiz() {
     }
     if (!short) short = await shortenLink(link);      // 2) backup: is.gd
     if (short) link = short;
-    else note = 'Couldn’t shorten the link right now, so this is the full link. It works the same.';
+    else note = 'Couldn’t shorten the link (' + linkWhy.join('; ') + '). This is the full link, and it works the same. [page ' + PAGE_VERSION + ']';
   }
   renderLinkPanel(link);
   if (note) showMsg(note, 'msg');
@@ -930,8 +944,11 @@ async function shortenLink(url) {
     const r = await fetch('https://is.gd/create.php?format=json&url=' + encodeURIComponent(url), { signal: ctl.signal });
     clearTimeout(timer);
     const d = await r.json();
-    return (d && typeof d.shorturl === 'string' && d.shorturl.indexOf('https://is.gd/') === 0) ? d.shorturl : null;
+    if (d && typeof d.shorturl === 'string' && d.shorturl.indexOf('https://is.gd/') === 0) return d.shorturl;
+    linkWhy.push('is.gd: ' + ((d && d.errormessage) || 'no link'));
+    return null;
   } catch (e) {
+    linkWhy.push('is.gd: ' + (e && e.name === 'AbortError' ? 'timed out' : (e && e.message) || 'blocked'));
     return null;
   }
 }
