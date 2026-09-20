@@ -5,6 +5,10 @@
  * Keep this file in the SAME folder as index.html.
  *   quiz -> compact JSON -> deflate -> AES-GCM -> base64url   (links look like  #q=...)
  *
+ * The quiz settings travel inside the encrypted part too (so a student can't edit them):
+ *   time limit, hide the green / red flash, shuffle questions and answers.
+ * Links made before those settings existed still open (they get the defaults).
+ *
  * To change the key: replace KEY_HEX with any 32 hex characters (0-9, a-f).
  * Links made with the old key stop working, so make new links afterwards.
  *
@@ -43,6 +47,13 @@ async function encodeSecure(q) {
       ? [it.text, ...it.choices, it.answer]
       : [it.text, it.answer === 'True' ? 'T' : 'F'])
   };
+  // Settings are only written when they differ from the default, which keeps the link short:
+  //   t = time limit in seconds (left out = unlimited)
+  //   h = 1 when the green / red flash is hidden (left out = flash shown)
+  //   s = 0 when shuffling is turned off (left out = shuffled)
+  if (Number(q.t) > 0) compact.t = Math.floor(Number(q.t));
+  if (q.hf === true) compact.h = 1;
+  if (q.sh === false) compact.s = 0;
   const raw = new TextEncoder().encode(JSON.stringify(compact));
   const packed = await pipeBytes(raw, new CompressionStream('deflate-raw'));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -62,6 +73,9 @@ async function decodeSecure(s) {
   return {
     v: 1,
     id: c.i,
+    t: Number(c.t) > 0 ? Math.floor(Number(c.t)) : 0,
+    hf: c.h === 1,
+    sh: c.s !== 0,
     questions: c.q.map(a => a.length === 6
       ? { type: 'mc', text: a[0], choices: a.slice(1, 5), answer: a[5] }
       : { type: 'tf', text: a[0], answer: a[1] === 'T' ? 'True' : 'False' })
