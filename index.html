@@ -1,2053 +1,433 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<link rel="icon" type="image/png" href="QLogo.png">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Quiz Builder</title>
-<style id="app-css">
-  :root {
-    color-scheme: light;
-    --bg: #FAFAF8;
-    --surface: #F5F5F2;
-    --border: #E0E0DC;
-    --text: #1a1a1a;
-    --muted: #888;
-    --accent: #1a1a1a;
-    --correct: #2d7a4f;
-    --wrong: #b83232;
-    --radius: 12px;
-    --font: 'Segoe UI', system-ui, sans-serif;
-    --card-bg: #ffffff;
-    --text-soft: #444;
-    --text-softer: #555;
-    --transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-    --btn-bg: #1a1a1a;
-    --btn-fg: #ffffff;
-  }
-
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #121212;
-    --surface: #1c1c1c;
-    --border: #333331;
-    --text: #f0f0ee;
-    --muted: #9a9a97;
-    --accent: #f0f0ee;
-    --correct: #4caf7d;
-    --wrong: #e07070;
-    --card-bg: #1a1a1a;
-    --text-soft: #d8d8d6;
-    --text-softer: #c4c4c1;
-    --btn-bg: #f0f0ee;
-    --btn-fg: #121212;
-  }
-
-  body, .card, input, textarea, .btn, .answer-option, .tf-btn, .type-toggle button, .timer-pill {
-    transition: var(--transition);
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  html { scroll-behavior: smooth; }
-  html, body { overscroll-behavior-y: none; }
-
-  /* ── scrollbar ── */
-  * {
-    scrollbar-width: thin;                       /* Firefox */
-    scrollbar-color: var(--border) transparent;  /* Firefox */
-  }
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 999px;
-    border: 2px solid var(--bg);
-    background-clip: padding-box;
-  }
-  ::-webkit-scrollbar-thumb:hover { background: #bbb; background-clip: padding-box; }
-  ::-webkit-scrollbar-corner { background: transparent; }
-
-  html, body {
-    height: 100%;
-    overflow: hidden;   /* the page itself never scrolls */
-  }
-
-  body {
-    font-family: var(--font);
-    background: var(--bg);
-    color: var(--text);
-  }
-
-  .scroll-area {
-    position: fixed;
-    top: 64px;      /* header height */
-    bottom: 0;
-    left: 0; right: 0;
-    overflow-y: auto;
-    display: flex;
-    padding: 24px;
-    /* The cards center themselves with  margin: auto  (see .card). Centering with
-       align-items / justify-content here cuts off the top of a tall card so you can't scroll up to it. */
-  }
-
-  .site-header {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 64px;
-    background: #14141a;   /* always dark, regardless of theme */
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 0 24px;
-    z-index: 100;
-  }
-
-  .site-logo { height: 32px; width: 32px; object-fit: contain; border-radius: 6px; flex-shrink: 0; }
-  .site-title { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
-
-  .theme-toggle {
-    margin-left: auto;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.25);
-    color: #fff;
-    font-size: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: background 0.2s;
-  }
-  .theme-toggle:hover { background: rgba(255,255,255,0.18); }
-
-  .card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 40px;
-    width: 100%;
-    max-width: 560px;
-    box-shadow: 0 2px 16px rgba(0,0,0,0.06);
-    margin: auto;   /* centered when short; starts at the top (and scrolls) when tall */
-  }
-
-  .brand {
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    margin-bottom: 28px;
-    text-transform: uppercase;
-  }
-
-  h1 { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
-  h2 { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
-
-  .subtitle {
-    font-size: 14px;
-    color: var(--muted);
-    margin-bottom: 32px;
-  }
-
-  .step-label {
-    font-size: 12px;
-    color: var(--muted);
-    margin-bottom: 8px;
-    font-weight: 500;
-  }
-
-  .progress-bar {
-    height: 3px;
-    background: var(--border);
-    border-radius: 2px;
-    margin-bottom: 32px;
-    overflow: hidden;
-  }
-
-  .progress-fill {
-    height: 100%;
-    background: var(--text);
-    border-radius: 2px;
-    transition: width 0.3s ease;
-  }
-
-  label {
-    display: block;
-    font-size: 13px;
-    font-weight: 500;
-    margin-bottom: 6px;
-    color: var(--text-soft);
-  }
-
-  input[type="text"], input[type="number"], textarea {
-    width: 100%;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    font-size: 15px;
-    font-family: var(--font);
-    background: var(--card-bg);
-    color: var(--text);
-    outline: none;
-    transition: border-color 0.2s;
-    resize: none;
-  }
-
-  input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
-    border-color: var(--text);
-  }
-
-  .btn {
-    display: inline-block;
-    padding: 12px 28px;
-    background: var(--btn-bg);
-    color: var(--btn-fg);
-    border: none;
-    border-radius: 8px;
-    font-size: 15px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: opacity 0.2s;
-    font-family: var(--font);
-  }
-
-  .btn:hover { opacity: 0.85; }
-
-  .btn-outline {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border);
-    margin-right: 10px;
-  }
-
-  .btn-outline:hover { background: var(--surface); opacity: 1; }
-
-  .tf-options {
-    display: flex;
-    gap: 12px;
-    margin-top: 4px;
-  }
-
-  .tf-btn {
-    flex: 1;
-    padding: 14px;
-    border: 2px solid var(--border);
-    border-radius: 8px;
-    background: var(--card-bg);
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-    font-family: var(--font);
-    color: var(--text);
-  }
-
-  .tf-btn:hover { border-color: #bbb; }
-
-  .tf-btn.selected {
-    border-color: var(--btn-bg);
-    background: var(--btn-bg);
-    color: var(--btn-fg);
-  }
-
-  .tf-btn.correct { border-color: var(--correct); background: var(--correct); color: #fff; }
-  .tf-btn.wrong { border-color: var(--wrong); background: var(--wrong); color: #fff; }
-
-  .answer-option {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 14px;
-    border: 2px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 10px;
-    cursor: pointer;
-    transition: all 0.15s;
-    background: var(--card-bg);
-    font-size: 15px;
-  }
-
-  .answer-option:hover { border-color: #bbb; }
-  .answer-option.selected { border-color: var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); }
-  .answer-option.correct { border-color: var(--correct); background: var(--correct); color: #fff; }
-  .answer-option.wrong { border-color: var(--wrong); background: var(--wrong); color: #fff; }
-
-  .option-label {
-    font-weight: 700;
-    font-size: 13px;
-    min-width: 20px;
-  }
-
-  .name-input-wrap { margin-bottom: 24px; }
-
-  .result-name {
-    font-size: 22px;
-    font-weight: 700;
-    margin-bottom: 4px;
-  }
-
-  .result-score {
-    font-size: 64px;
-    font-weight: 800;
-    line-height: 1;
-    margin: 20px 0 8px;
-  }
-
-  .result-label { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
-
-  .result-breakdown {
-    border-top: 1px solid var(--border);
-    padding-top: 20px;
-    margin-top: 8px;
-  }
-
-  .breakdown-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 14px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .correct-tag { color: var(--correct); font-weight: 600; }
-  .wrong-tag { color: var(--wrong); font-weight: 600; }
-
-  .locked {
-    text-align: center;
-    padding: 40px 0;
-  }
-
-  .locked-icon { font-size: 48px; margin-bottom: 16px; }
-
-  .home-btns {
-    display: flex;
-    gap: 12px;
-    margin-top: 28px;
-  }
-
-  .skip-row { margin-top: 18px; text-align: center; }
-  .skip-btn { padding: 8px 18px; font-size: 13px; color: var(--muted); margin-right: 0; }
-
-  .home-btns .btn { flex: 1; padding: 12px 16px; white-space: nowrap; }
-  .home-btns .btn-outline { margin-right: 0; }
-  .correct-tag, .wrong-tag { white-space: nowrap; margin-left: 12px; }
-
-  .screenshot-hint {
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 16px;
-    text-align: center;
-  }
-
-  .q-counter {
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 16px;
-  }
-
-  .btn:disabled { opacity: 0.6; cursor: default; }
-
-  .msg {
-    font-size: 13px;
-    color: var(--wrong);
-    margin-top: 14px;
-    min-height: 1em;
-    line-height: 1.4;
-  }
-  .msg.ok { color: var(--correct); }
-
-  .info-box {
-    background: var(--surface);
-    border-radius: 8px;
-    padding: 16px;
-    font-size: 13px;
-    color: var(--text-softer);
-    margin-bottom: 24px;
-    line-height: 1.6;
-  }
-
-  .preset-title { font-weight: 700; font-size: 15px; }
-  .preset-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
-  .answer-option.selected .preset-desc { color: inherit; opacity: 0.75; }
-  .answer-option.selected .preset-title { color: inherit; }
-
-  .plan-list { margin-bottom: 8px; }
-  .plan-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 14px;
-  }
-  .plan-num { font-weight: 600; }
-  .plan-right { display: flex; align-items: center; gap: 8px; }
-  .type-toggle { display: flex; gap: 6px; }
-  .type-toggle button {
-    padding: 6px 12px;
-    border: 2px solid var(--border);
-    border-radius: 8px;
-    background: var(--card-bg);
-    color: var(--text);
-    font-size: 12px;
-    font-weight: 600;
-    font-family: var(--font);
-    cursor: pointer;
-    transition: all 0.15s;
-    white-space: nowrap;
-  }
-  .type-toggle button:hover { border-color: #bbb; }
-  .type-toggle button.selected { border-color: var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); }
-  .plan-remove {
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    font-size: 15px;
-    cursor: pointer;
-    padding: 4px 6px;
-    font-family: var(--font);
-  }
-  .plan-remove:hover { color: var(--wrong); }
-  .plan-add { margin: 14px 0 0; }
-  .plan-count { font-size: 12px; color: var(--muted); margin-top: 10px; }
-
-  /* ── timer ── */
-  input[type="number"] { text-align: center; -moz-appearance: textfield; appearance: textfield; }
-  input[type="number"]::-webkit-inner-spin-button,
-  input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-  .time-box { margin-bottom: 24px; }
-  .time-row { display: flex; gap: 10px; }
-  .time-field { flex: 1; }
-  .time-field label { text-align: center; margin: 6px 0 0; font-size: 12px; color: var(--muted); }
-  .time-hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
-  .opt-box { margin-bottom: 24px; }
-  .check-row { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; font-weight: 500; color: var(--text); }
-  .check-row input { width: 20px; height: 20px; margin: 0; accent-color: var(--text); cursor: pointer; flex-shrink: 0; }
-  .q-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
-  .q-row .q-counter { margin-bottom: 0; }
-  .timer-pill {
-    font-size: 13px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    padding: 4px 12px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-    white-space: nowrap;
-  }
-  .timer-pill.low { color: var(--wrong); border-color: var(--wrong); }
-  .time-note { font-size: 13px; color: var(--wrong); margin: 4px 0 16px; line-height: 1.5; }
-
-  /* ── pull down from the header to refresh ── */
-  #ptr {
-    position: fixed;
-    top: 64px;
-    left: 50%;
-    width: 40px;
-    height: 40px;
-    margin-left: -20px;
-    border-radius: 50%;
-    background: var(--card-bg);
-    border: 2px solid var(--border);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.18);
-    color: var(--text);
-    font-size: 20px;
-    line-height: 36px;
-    text-align: center;
-    z-index: 90;
-    pointer-events: none;
-    opacity: 0;
-    transform: translateY(-60px);
-  }
-  #ptr.spin { animation: ptrspin 0.8s linear infinite; }
-  @keyframes ptrspin {
-    from { transform: translateY(16px) rotate(0deg); }
-    to   { transform: translateY(16px) rotate(360deg); }
-  }
-
-  #home { display: block; }
-  #maker { display: none; }
-  #taker { display: none; }
-  #live { display: none; }
-
-  /* ── live results ── */
-  #live { max-width: 1100px; }
-  .live-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    margin-top: 24px;
-  }
-  @media (max-width: 900px) { .live-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 600px) { .live-grid { grid-template-columns: 1fr; } }
-  .live-empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
-  .mini-card {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
-    background: var(--bg);
-  }
-  .mini-name { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
-  .mini-time { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
-  .mini-score { font-size: 30px; font-weight: 800; line-height: 1; margin-bottom: 2px; }
-  .mini-grade { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-  .mini-breakdown {
-    border-top: 1px solid var(--border);
-    padding-top: 8px;
-    padding-right: 4px;
-    margin-top: 4px;
-    max-height: 170px;
-    overflow-y: auto;
-  }
-  .mini-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 3px 0; }
-  .mini-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-</style>
-</head>
-<body>
-<script type="application/json" id="quiz-data">null</script>
-<script src="quiz-crypto.js"></script>
-<script id="app-js">
-const PAGE_TITLE = 'Quiz Builder — Youssef Hisham';
-
-// The three screens live here (not in the HTML) so this page can rebuild
-// its own source when the teacher saves a quiz.
-const BODY_HTML = `
-<!-- SITE HEADER -->
-<header class="site-header">
-  <img class="site-logo" src="QLogo.png" alt="Quiz Builder logo">
-  <span class="site-title">Quiz Builder</span>
-  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
-</header>
-
-<div class="scroll-area" id="scrollArea">
-
-<!-- HOME -->
-<div class="card" id="home">
-  <div class="brand">© Youssef Hisham 2026</div>
-  <h1>Quiz Builder</h1>
-  <p class="subtitle">Create a quiz or take one your teacher shared.</p>
-  <div style="display:flex; gap:12px; margin-top:32px;">
-    <button class="btn" onclick="startMaker()">Build a Quiz</button>
-    <button class="btn btn-outline" onclick="startTaker()">Take a Quiz</button>
-  </div>
-  <div class="msg" id="homeMsg"></div>
-</div>
-
-<!-- QUIZ MAKER -->
-<div class="card" id="maker">
-  <div class="brand">Quiz Builder — Maker Mode</div>
-  <div class="progress-bar"><div class="progress-fill" id="makerProgress"></div></div>
-  <div id="makerContent"></div>
-</div>
-
-<!-- QUIZ TAKER -->
-<div class="card" id="taker">
-  <div class="brand">© Youssef Hisham 2026</div>
-  <div id="takerContent"></div>
-</div>
-
-<!-- LIVE RESULTS -->
-<div class="card" id="live">
-  <div class="brand">© Youssef Hisham 2026</div>
-  <h1>Live Results</h1>
-  <p class="subtitle" id="liveStatus">Waiting for students to finish…</p>
-  <div class="info-box" id="liveFlags" style="display:none;"></div>
-  <div class="live-grid" id="liveGrid"></div>
-</div>
-
-</div>
-
-`;
-document.body.insertAdjacentHTML('afterbegin', BODY_HTML);
-initTheme();
-
-// ── DARK MODE ──────────────────────────────────────────
-// Remembers the choice on this device. Defaults to the browser/OS preference
-// the first time, then whatever the person picked with the header button.
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  try { localStorage.setItem('qb-theme', theme); } catch (e) {}
-  const btn = document.getElementById('themeToggle');
-  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+// Quiz Builder — link server (Cloudflare Worker + KV)
+// © Youssef Hisham 2026
+//
+// Stores the ENCRYPTED quiz text under a short code and hands it back later.
+// The server never sees the plain questions or answers.
+//
+// Also stores STUDENT RESULTS (name, score, per-question right/wrong) under
+// the quiz's own internal id, so the teacher can watch a live results feed.
+// Results are plain (not encrypted) — that's needed so the teacher's live
+// page can read and display them.
+//
+// Also enforces ONE ATTEMPT PER STUDENT NAME: when a student taps Start Quiz
+// the page calls /start, and a name that already started that quiz is refused
+// (works across phones, browsers and incognito).
+//
+// Also keeps a soft WARNING when a different name starts on what looks like the
+// same phone as an earlier student (same phone type / screen / time zone, and
+// whether it came from the same network). It never blocks anyone: the teacher
+// sees it on the live results page and decides. Only a scrambled (hashed)
+// network address is stored, never the real one.
+//
+// CLASS LIST (optional, per quiz): the teacher can save a list of up to 50 student
+// names. When a quiz has a list, only those names can start it (small spelling
+// mistakes and capitals are tolerated, the student confirms "Are you ...?"), and a
+// name is crossed off as soon as it starts. No list = any name, one start per name.
+//
+// TEACHER PAGE: "Who's in the test" shows who started, who finished and each timer,
+// and lets the teacher give a student another try. Those calls need the teacher's
+// secret key, which is created when the teacher saves the quiz (only a hash of it is
+// stored here).
+//
+// Needs one KV binding named QUIZZES (same one you already have — no new
+// binding needed).
+
+const ALLOWED_ORIGIN = 'https://recachiastudios-hub.github.io';   // your GitHub Pages site
+const KEEP_SECONDS = 60 * 60 * 24 * 365;                          // quizzes are kept for 1 year
+const RESULTS_KEEP_SECONDS = 60 * 60 * 24 * 30;                   // results are kept for 30 days
+const START_KEEP_SECONDS = KEEP_SECONDS;                          // "this name already started" is remembered as long as the quiz lives
+const MAX_RESULTS_PER_QUIZ = 300;                                 // oldest results drop off past this
+const MAX_FLAGS_PER_QUIZ = 100;                                   // oldest warnings drop off past this
+const MAX_ROSTER = 50;                                            // most names in a class list
+
+const CORS = {
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type'
+};
+
+function reply(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { ...CORS, 'Content-Type': 'application/json' }
+  });
 }
 
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-  applyTheme(current === 'dark' ? 'light' : 'dark');
+function newCode() {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';   // no look-alike letters (l, o, 0, 1)
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  return Array.from(bytes, b => chars[b % chars.length]).join('');
 }
 
-function initTheme() {
-  let saved = null;
-  try { saved = localStorage.getItem('qb-theme'); } catch (e) {}
-  if (saved !== 'dark' && saved !== 'light') {
-    saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-  }
-  applyTheme(saved);
+// A quiz's own internal id (made with newQuizId() in the app) — 4-20
+// letters/numbers. This is what results are filed under, since it exists
+// no matter how the quiz was shared (short link, long link, or saved page).
+function validQuizId(id) {
+  return typeof id === 'string' && /^[a-z0-9]{4,20}$/i.test(id);
 }
 
-// ── STATE ──────────────────────────────────────────────
-let quizData = null;       // the quiz students take
-let currentQ = {};         // question being built
-let questions = [];        // finished questions
-const MAX_QUESTIONS = 50;
-const MAX_TIME = 24 * 3600;   // longest time limit: 24 hours (in seconds)
-let plan = [];             // type of each question, in order: 'mc' or 'tf'
-let makerStage = 'setup';  // 'setup' -> 'custom' (optional) -> 'questions'
-let presetChoice = null;   // 'mix' | 'mc' | 'tf' | 'custom'
-const CUSTOM_MIN_ROWS = 10;   // Custom quiz screen: the list area never gets shorter than it is with this many questions
-let customPlan = [];       // rows in the custom list
-
-const PRESETS = [
-  { id: 'mix',    title: 'Mixed',            desc: '5 multiple choice + 5 true / false' },
-  { id: 'mc',     title: 'All multiple choice', desc: '10 questions with 4 options each' },
-  { id: 'tf',     title: 'All true / false', desc: '10 statements to mark true or false' },
-  { id: 'custom', title: 'Custom',           desc: 'Choose the type of each question yourself' }
-];
-
-function presetPlan(id) {
-  if (id === 'mix') return ['mc','mc','mc','mc','mc','tf','tf','tf','tf','tf'];
-  if (id === 'mc')  return Array(10).fill('mc');
-  return Array(10).fill('tf');
-}
-
-// Maker sub-steps per MC question:
-// 0=question text, 1=A, 2=B, 3=C, 4=D, 5=answer
-// TF sub-steps: 0=question text, 1=answer
-let subStep = 0;
-let qIndex = 0;
-let tfAnswer = null;
-let mcAnswer = null;
-let editMode = false;    // true when editing an existing question
-let editIndex = -1;      // which question is being edited
-
-// Taker state
-let takerName = '';
-let takerAnswers = [];
-let queue = [];               // questions still to answer, in the order they will be shown
-let answerMap = [];           // answers by original question number (null = not answered yet)
-let lastSkipAt = 0;
-let takerStarted = false;
-let quizLocked = false;
-let takerBusy = false;        // true while the correct/wrong flash is showing
-let previewMode = false;      // teacher trying the quiz
-let teacherMode = false;      // teacher panel is showing
-let resultSubmitted = false;  // this student's result has been sent to the live results server
-let quizId = '';              // identifies this quiz on the student's device / to the live results server
-let livePollId = null;        // live results screen: the setInterval id for polling
-let liveQuizId = '';          // live results screen: which quiz we're watching
-let restored = false;         // progress was restored from this device
-let quizTime = 0;             // seconds allowed for the quiz (0 = unlimited)
-let fullOrder = [];           // the order this student sees the questions (shuffled)
-let perms = [];               // per question: the order this student sees the 4 choices (shuffled), null for true / false
-let timerStart = 0;           // when this student pressed Start Quiz (ms)
-let timerId = null;
-let timeIsUp = false;
-let timeLimit = { h: 0, m: 0, s: 0 };   // maker: the limit being chosen
-let hideFlash = true;         // maker: hide the green / red flash after a student answers
-let quizHideFlash = true;     // taker: the quiz being taken hides the flash (safe default)
-let shuffleOn = true;         // maker: shuffle question order and answer order for each student
-let quizShuffle = true;       // taker: the quiz being taken is shuffled
-let attemptToken = '';        // taker: random id for this page load, lets the server accept a retry of the same Start tap
-
-// ── HELPERS ────────────────────────────────────────────
-function show(id) {
-  ['home','maker','taker','live'].forEach(x => document.getElementById(x).style.display = 'none');
-  document.getElementById(id).style.display = 'block';
-}
-
-function setProgress(pct) {
-  document.getElementById('makerProgress').style.width = pct + '%';
-}
-
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-function showMsg(text, id, ok) {
-  const el = document.getElementById(id || 'msg');
-  if (!el) return;
-  el.className = 'msg' + (ok ? ' ok' : '');
-  el.textContent = text;
-}
-
-function gradeFor(pct) {
-  return pct >= 90 ? 'Excellent' : pct >= 75 ? 'Very Good' : pct >= 60 ? 'Good' : pct >= 50 ? 'Pass' : 'Needs Review';
-}
-
-// ── QUIZ DATA: validate + link encoding ────────────────
-function validateQuiz(q) {
-  if (!q || !Array.isArray(q.questions) || q.questions.length < 1 || q.questions.length > 50) return null;
+// Keeps a result entry small and safe to store.
+function cleanBreakdown(b) {
+  if (!Array.isArray(b) || b.length === 0 || b.length > 50) return null;
   const out = [];
-  for (const it of q.questions) {
-    if (!it || typeof it.text !== 'string') return null;
-    if (it.type === 'mc') {
-      if (!Array.isArray(it.choices) || it.choices.length !== 4 || !['A','B','C','D'].includes(it.answer)) return null;
-      out.push({ type: 'mc', text: it.text.slice(0, 500), choices: it.choices.map(c => String(c).slice(0, 300)), answer: it.answer });
-    } else if (it.type === 'tf') {
-      if (it.answer !== 'True' && it.answer !== 'False') return null;
-      out.push({ type: 'tf', text: it.text.slice(0, 500), answer: it.answer });
-    } else {
-      return null;
+  for (const row of b) {
+    if (!row || typeof row.q !== 'string' || typeof row.r !== 'boolean') return null;
+    out.push({ q: row.q.slice(0, 80), r: row.r });
+  }
+  return out;
+}
+
+// Makes "Ahmed  Mohamed", "ahmed mohamed" and "أحمد" / "احمد" count as the same name.
+function normName(s) {
+  return String(s || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')   // Arabic diacritics + tatweel
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[^\p{L}\p{N}]+/gu, '');              // drop spaces and punctuation
+}
+
+// How many letters may be different and still count as "the same name" (longer name = more room).
+function tolerance(len) { return len <= 4 ? 0 : len <= 8 ? 1 : len <= 14 ? 2 : 3; }
+
+// Number of single-letter changes needed to turn a into b.
+function lev(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
     }
+    prev = cur;
   }
-  const id = (typeof q.id === 'string' && /^[a-z0-9]{4,20}$/i.test(q.id)) ? q.id : '';
-  let t = Number(q.t);
-  t = (Number.isFinite(t) && t > 0) ? Math.min(Math.floor(t), MAX_TIME) : 0;
-  return { v: 1, id: id, t: t, hf: !!q.hf, sh: q.sh !== false, questions: out };
+  return prev[n];
 }
 
-function shuffled(arr) {                     // Fisher–Yates
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const t = a[i]; a[i] = a[j]; a[j] = t;
-  }
-  return a;
+// Finds the name on the class list that the student meant.
+//   exact     -> the name matches (ignoring capitals / spaces / Arabic letter variants)
+//   close     -> one name is clearly the closest: the student is asked to confirm it
+//   ambiguous -> two or more names are equally close: the student must ask the teacher
+//   none      -> nothing close enough
+function matchRoster(roster, typed) {
+  const key = normName(typed);
+  if (!key) return { kind: 'none' };
+  const scored = roster.map(n => ({ n, d: lev(key, normName(n)) })).sort((a, b) => a.d - b.d);
+  const best = scored[0];
+  if (!best) return { kind: 'none' };
+  if (best.d === 0) return { kind: 'exact', name: best.n };
+  if (best.d > tolerance(key.length)) return { kind: 'none' };
+  if (scored[1] && scored[1].d === best.d) return { kind: 'ambiguous' };
+  return { kind: 'close', name: best.n };
 }
 
-function isPerm(a, n) {
-  return Array.isArray(a) && a.length === n && a.every(x => Number.isInteger(x) && x >= 0 && x < n) && new Set(a).size === n;
-}
-
-function hashStr(s) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return (h >>> 0).toString(36);
-}
-
-function newQuizId() {
+async function getRoster(env, id) {
   try {
-    return Array.from(crypto.getRandomValues(new Uint8Array(8)), b => (b % 36).toString(36)).join('');
-  } catch (e) {
-    return Math.random().toString(36).slice(2, 10);
-  }
+    const a = JSON.parse((await env.QUIZZES.get('roster:' + id)) || 'null');
+    return Array.isArray(a) && a.length ? a : null;
+  } catch (e) { return null; }
 }
 
-// ── ONE ATTEMPT PER DEVICE ─────────────────────────────
-// Remembers (on this phone/browser only) the student's name and answers so far.
-function progressKey() { return quizId ? 'qb1:' + quizId : ''; }
-
-function saveProgress() {
-  if (previewMode || !progressKey()) return;
-  try {
-    localStorage.setItem(progressKey(), JSON.stringify({ n: takerName, g: answerMap.map(a => a ? a.given : null), o: queue.slice(), s: timerStart, f: fullOrder, p: perms, r: resultSubmitted }));
-  } catch (e) {}
+async function sha256hex(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function loadProgress() {
-  if (!progressKey()) return null;
-  try {
-    const p = JSON.parse(localStorage.getItem(progressKey()) || 'null');
-    if (p && typeof p.n === 'string' && p.n && Array.isArray(p.g) && p.g.length <= quizData.length &&
-        p.g.every(x => x === null || typeof x === 'string')) return p;
-  } catch (e) {}
-  return null;
+// Is this the teacher who saved the quiz? (their secret key, checked against the stored hash)
+async function isOwner(env, id, tk) {
+  if (typeof tk !== 'string' || !/^[a-f0-9]{32}$/i.test(tk)) return false;
+  const stored = await env.QUIZZES.get('owner:' + id);
+  return !!stored && stored === await sha256hex(tk.toLowerCase());
 }
 
-function encodeQuiz(q) {
-  const bytes = new TextEncoder().encode(JSON.stringify(q));
-  let s = '';
-  bytes.forEach(b => s += String.fromCharCode(b));
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// Scrambled network address (can be compared, cannot be turned back into the address).
+async function ipHash(request, id) {
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  if (!ip) return '';
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip + ':' + id));
+  return Array.from(new Uint8Array(buf).slice(0, 6), b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function decodeQuiz(s) {
-  s = s.replace(/-/g, '+').replace(/_/g, '/');
-  while (s.length % 4) s += '=';
-  const bin = atob(s);
-  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
-  return JSON.parse(new TextDecoder().decode(bytes));
-}
+// Remembers which names started on which phone signature, and files a warning when
+// a different name shows up on a signature that was already used for this quiz.
+async function noteDevice(env, id, sig, name, label, ip) {
+  const sKey = 'sig:' + id + ':' + sig;
+  let seen = [];
+  try { seen = JSON.parse((await env.QUIZZES.get(sKey)) || '[]'); } catch (e) { seen = []; }
+  if (!Array.isArray(seen)) seen = [];
 
-// ── SHORT + ENCRYPTED LINKS ────────────────────────────
-// The encryption lives in quiz-crypto.js (same folder as this page).
-// If that file is missing, links fall back to the older, longer format.
-// Link server (Cloudflare Worker) that turns a quiz into a short code like  #s=k8f3x2
-const SHORT_API = 'https://purple-art-a864.recachiastudios.workers.dev';
-
-const PAGE_VERSION = 'v7';
-let linkWhy = [];   // reasons a link could not be shortened (shown to the teacher)
-
-async function serverSave(data) {
-  if (!SHORT_API) { linkWhy.push('server address missing'); return null; }
-  try {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 8000);
-    const r = await fetch(SHORT_API + '/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: data }),
-      signal: ctl.signal
+  const nk = normName(name);
+  const others = seen.filter(x => x && x.n && (x.k || normName(x.n)) !== nk);
+  if (others.length) {
+    const fKey = 'flags:' + id;
+    let flags = [];
+    try { flags = JSON.parse((await env.QUIZZES.get(fKey)) || '[]'); } catch (e) { flags = []; }
+    if (!Array.isArray(flags)) flags = [];
+    flags.push({
+      n: name,
+      of: others.map(x => x.n).slice(0, 3),
+      ip: !!ip && others.some(x => x.i && x.i === ip),
+      d: label,
+      ts: Date.now()
     });
-    clearTimeout(timer);
-    const d = await r.json();
-    if (d && typeof d.code === 'string' && /^[a-z0-9]{4,12}$/.test(d.code)) return d.code;
-    linkWhy.push('server said ' + r.status + ' ' + ((d && d.error) || 'no code'));
-    return null;
-  } catch (e) {
-    linkWhy.push('server: ' + (e && e.name === 'AbortError' ? 'timed out' : (e && e.message) || 'failed'));
-    return null;
+    if (flags.length > MAX_FLAGS_PER_QUIZ) flags = flags.slice(flags.length - MAX_FLAGS_PER_QUIZ);
+    await env.QUIZZES.put(fKey, JSON.stringify(flags), { expirationTtl: START_KEEP_SECONDS });
   }
+
+  seen = seen.filter(x => x && x.n && (x.k || normName(x.n)) !== nk);   // same person starting again after a reset: replace, don't repeat
+  seen.push({ n: name, k: nk, i: ip });
+  if (seen.length > 20) seen = seen.slice(seen.length - 20);
+  await env.QUIZZES.put(sKey, JSON.stringify(seen), { expirationTtl: START_KEEP_SECONDS });
 }
 
-function cryptoWhy() {
-  if (!window.QuizCrypto) return 'quiz-crypto.js did not load';
-  if (!(window.crypto && crypto.subtle)) return 'browser has no encryption here (needs https)';
-  return 'browser too old for compression';
-}
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
 
-function cryptoReady() {
-  return !!(window.QuizCrypto && window.crypto && crypto.subtle && typeof CompressionStream !== 'undefined');
-}
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
-async function loadSharedQuiz() {
-  const h = location.hash;
-  if (/^#(q|quiz|s)=/.test(h)) {
-    try {
-      const ms = h.match(/^#s=([a-z0-9]{4,12})$/);
-      if (ms) {
-        if (!cryptoReady() || !SHORT_API) {
-          showMsg('This page can’t open the quiz. The file quiz-crypto.js must be in the same folder as index.html.', 'homeMsg');
-          return null;
+    // Save: POST /save  {data: "<encrypted quiz>"}  ->  {code: "k8f3x2"}
+    if (request.method === 'POST' && url.pathname === '/save') {
+      if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return reply({ error: 'not allowed' }, 403);
+      let body;
+      try { body = await request.json(); } catch (e) { return reply({ error: 'bad request' }, 400); }
+      const data = body && body.data;
+      if (typeof data !== 'string' || data.length < 10 || data.length > 20000 || !/^[A-Za-z0-9_-]+$/.test(data)) {
+        return reply({ error: 'bad data' }, 400);
+      }
+      for (let i = 0; i < 5; i++) {
+        const code = newCode();
+        if (!(await env.QUIZZES.get(code))) {
+          await env.QUIZZES.put(code, data, { expirationTtl: KEEP_SECONDS });
+          return reply({ code });
         }
-        showMsg('Loading quiz…', 'homeMsg', true);
-        const r = await fetch(SHORT_API + '/get?c=' + ms[1]);
-        if (!r.ok) throw new Error('not found');
-        const d = await r.json();
-        const q = validateQuiz(await window.QuizCrypto.decode(d.data));
-        if (q) { showMsg('', 'homeMsg'); return { quiz: q, source: 'link' }; }
       }
-      const m = h.match(/^#q=([A-Za-z0-9_-]+)$/);
-      if (m) {
-        if (!cryptoReady()) {
-          showMsg('This page can’t open the quiz. The file quiz-crypto.js must be in the same folder as index.html.', 'homeMsg');
-          return null;
+      return reply({ error: 'try again' }, 503);
+    }
+
+    // Load: GET /get?c=k8f3x2  ->  {data: "<encrypted quiz>"}
+    if (request.method === 'GET' && url.pathname === '/get') {
+      const code = url.searchParams.get('c') || '';
+      if (!/^[a-z0-9]{4,12}$/.test(code)) return reply({ error: 'bad code' }, 400);
+      const data = await env.QUIZZES.get(code);
+      return data ? reply({ data }) : reply({ error: 'not found' }, 404);
+    }
+
+    // ── ONE ATTEMPT PER STUDENT ───────────────────────────
+
+    // Setup: POST /setup  {id, tk, names}  ->  {ok: true, count}
+    // Called by the teacher when the quiz is saved. Registers the teacher's secret key (first
+    // one wins) and saves / replaces / clears the optional class list.
+    if (request.method === 'POST' && url.pathname === '/setup') {
+      if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return reply({ error: 'not allowed' }, 403);
+      let body;
+      try { body = await request.json(); } catch (e) { return reply({ error: 'bad request' }, 400); }
+
+      const id = body && body.id;
+      const tk = body && body.tk;
+      if (!validQuizId(id)) return reply({ error: 'bad id' }, 400);
+      if (typeof tk !== 'string' || !/^[a-f0-9]{32}$/i.test(tk)) return reply({ error: 'bad key' }, 400);
+
+      const hash = await sha256hex(tk.toLowerCase());
+      const stored = await env.QUIZZES.get('owner:' + id);
+      if (stored && stored !== hash) return reply({ error: 'not yours' }, 403);
+      if (!stored) await env.QUIZZES.put('owner:' + id, hash, { expirationTtl: KEEP_SECONDS });
+
+      const seen = new Set();
+      const clean = [];
+      for (const raw of (Array.isArray(body.names) ? body.names : [])) {
+        if (typeof raw !== 'string') continue;
+        const n = raw.replace(/\s+/g, ' ').trim().slice(0, 60);
+        const k = normName(n);
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        clean.push(n);
+        if (clean.length >= MAX_ROSTER) break;
+      }
+      if (clean.length) await env.QUIZZES.put('roster:' + id, JSON.stringify(clean), { expirationTtl: KEEP_SECONDS });
+      else await env.QUIZZES.delete('roster:' + id);
+      return reply({ ok: true, count: clean.length });
+    }
+
+    // Start: POST /start  {id, name, token, sig, label, lim, pick}
+    //   ->  {ok: true}                      (no class list: any name)
+    //   ->  {ok: true, name}                (class list: the name on the list that was matched)
+    //   ->  {status: 'confirm', name}       (class list: close match, ask the student "Are you ...?")
+    //   ->  422 {error: 'not on list' | 'ambiguous'}
+    //   ->  409 if that name already started this quiz
+    if (request.method === 'POST' && url.pathname === '/start') {
+      if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return reply({ error: 'not allowed' }, 403);
+      let body;
+      try { body = await request.json(); } catch (e) { return reply({ error: 'bad request' }, 400); }
+
+      const id = body && body.id;
+      const token = body && typeof body.token === 'string' ? body.token.slice(0, 64) : '';
+      const lim = body && Number.isInteger(body.lim) && body.lim > 0 && body.lim <= 86400 ? body.lim : 0;
+      if (!validQuizId(id)) return reply({ error: 'bad id' }, 400);
+
+      const roster = await getRoster(env, id);
+      let display;
+      if (roster) {
+        if (typeof body.pick === 'string' && body.pick) {
+          const pk = normName(body.pick);
+          const hit = roster.find(n => normName(n) === pk);
+          if (!hit) return reply({ error: 'not on list' }, 422);
+          display = hit;
+        } else {
+          const m = matchRoster(roster, typeof body.name === 'string' ? body.name : '');
+          if (m.kind === 'none') return reply({ error: 'not on list' }, 422);
+          if (m.kind === 'ambiguous') return reply({ error: 'ambiguous' }, 422);
+          if (m.kind === 'close') return reply({ status: 'confirm', name: m.name });
+          display = m.name;
         }
-        const q = validateQuiz(await window.QuizCrypto.decode(m[1]));
-        if (q) return { quiz: q, source: 'link' };
+      } else {
+        display = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
       }
-      const m2 = h.match(/^#quiz=([A-Za-z0-9_-]+)$/);
-      if (m2) {
-        const q = validateQuiz(decodeQuiz(m2[1]));
-        if (q) return { quiz: q, source: 'link' };
+      const name = normName(display);
+      if (!name || name.length > 120) return reply({ error: 'bad name' }, 400);
+      const done = () => reply(roster ? { ok: true, name: display } : { ok: true });
+
+      const key = 'start:' + id + ':' + name;
+      const existing = await env.QUIZZES.get(key);
+      if (existing) {
+        let rec = null;
+        try { rec = JSON.parse(existing); } catch (e) {}
+        // Same page load tapping Start again (e.g. the reply got lost): let it through.
+        if (rec && rec.token && rec.token === token) return done();
+        return reply({ error: 'already started' }, 409);
       }
-    } catch (e) {}
-    showMsg('This quiz link is incomplete, damaged or couldn’t be loaded. Check your internet connection or ask your teacher to send it again.', 'homeMsg');
-    return null;
-  }
-  try {
-    const el = document.getElementById('quiz-data');
-    const txt = el ? el.textContent.trim() : '';
-    if (txt && txt !== 'null') {
-      const q = validateQuiz(JSON.parse(txt));
-      if (q) return { quiz: q, source: 'page' };
-    }
-  } catch (e) {}
-  return null;
-}
-
-// The page's own source, rebuilt with a quiz baked in (used when saving).
-function buildPageHtml(quiz) {
-  const css = document.getElementById('app-css').textContent;
-  const code = document.getElementById('app-js').textContent;
-  const data = JSON.stringify(quiz).replace(/</g, '\\u003c');
-  return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n' +
-    '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
-    '<title>' + PAGE_TITLE + '</title>\n' +
-    '<style id="app-css">' + css + '</style>\n</head>\n<body>\n' +
-    '<scr' + 'ipt type="application/json" id="quiz-data">' + data + '<' + '/script>\n' +
-    '<scr' + 'ipt id="app-js">' + code + '<' + '/script>\n</body>\n</html>';
-}
-
-// ── MAKER ──────────────────────────────────────────────
-function startMaker() {
-  questions = [];
-  qIndex = 0;
-  subStep = 0;
-  currentQ = {};
-  plan = [];
-  presetChoice = null;
-  makerStage = 'setup';
-  timeLimit = { h: 0, m: 0, s: 0 };
-  hideFlash = true;
-  shuffleOn = true;
-  show('maker');
-  renderMakerStep();
-}
-
-// ── MAKER: choose a format ─────────────────────────────
-function renderSetup() {
-  setProgress(0);
-  document.getElementById('makerContent').innerHTML = `
-    <h2>Choose a quiz format</h2>
-    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Pick a ready-made format or build your own.</p>
-    ${PRESETS.map(p => `
-      <div class="answer-option ${presetChoice===p.id?'selected':''}" onclick="selectPreset('${p.id}')">
-        <div>
-          <div class="preset-title">${p.title}</div>
-          <div class="preset-desc">${p.desc}</div>
-        </div>
-      </div>`).join('')}
-    <div style="margin-top:24px;">
-      <button class="btn btn-outline" onclick="show('home')">Back</button>
-      <button class="btn" onclick="setupNext()">Next →</button>
-    </div>
-    <div class="msg" id="msg"></div>`;
-}
-
-function selectPreset(id) {
-  presetChoice = id;
-  renderMakerStep();
-}
-
-function setupNext() {
-  if (!presetChoice) { showMsg('Please choose a format.'); return; }
-  if (presetChoice === 'custom') {
-    if (!customPlan.length) customPlan = Array(10).fill('mc');
-    makerStage = 'custom';
-    renderMakerStep();
-    return;
-  }
-  beginQuestions(presetPlan(presetChoice));
-}
-
-function beginQuestions(p) {
-  plan = p.slice();
-  questions = [];
-  qIndex = 0;
-  subStep = 0;
-  currentQ = {};
-  makerStage = 'questions';
-  renderMakerStep();
-}
-
-// ── MAKER: custom list ─────────────────────────────────
-function renderCustom() {
-  setProgress(0);
-  const rows = customPlan.map((t, i) => `
-    <div class="plan-row">
-      <span class="plan-num">Q${i+1}</span>
-      <div class="plan-right">
-        <div class="type-toggle">
-          <button class="${t==='mc'?'selected':''}" onclick="setCustomType(${i},'mc')">Choice</button>
-          <button class="${t==='tf'?'selected':''}" onclick="setCustomType(${i},'tf')">T / F</button>
-        </div>
-        <button class="plan-remove" aria-label="Remove question ${i+1}" onclick="removeCustom(${i})">✕</button>
-      </div>
-    </div>`).join('');
-  const mc = customPlan.filter(t => t === 'mc').length;
-  const tf = customPlan.length - mc;
-  document.getElementById('makerContent').innerHTML = `
-    <h2>Custom quiz</h2>
-    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Choose the type of each question. T / F means true or false.</p>
-    <div id="planWrap" style="display:flow-root;">
-      <div class="plan-list">${rows}</div>
-      <button class="btn btn-outline plan-add" onclick="addCustom()" ${customPlan.length>=MAX_QUESTIONS?'disabled':''}>+ Add question</button>
-      <div class="plan-count">${mc} multiple choice · ${tf} true / false</div>
-    </div>
-    <div style="margin-top:24px;">
-      <button class="btn btn-outline" onclick="customBack()">Back</button>
-      <button class="btn" onclick="customNext()">Next →</button>
-    </div>
-    <div class="msg" id="msg"></div>`;
-  // Minimum size: the list area is never shorter than it is with the default 10 questions, so removing
-  // questions doesn't make the box shrink and the buttons below jump up. Adding more questions makes it
-  // taller, and removing them brings it back down, but only as far as that default size.
-  const wrap = document.getElementById('planWrap');
-  const list = wrap && wrap.querySelector('.plan-list');
-  if (wrap && list && customPlan.length) {
-    const perRow = list.offsetHeight / customPlan.length;
-    const atDefault = wrap.offsetHeight - list.offsetHeight + perRow * CUSTOM_MIN_ROWS;
-    wrap.style.minHeight = Math.ceil(atDefault) + 'px';
-  }
-}
-
-function setCustomType(i, t) { customPlan[i] = t; renderCustom(); }
-
-function addCustom() {
-  if (customPlan.length >= MAX_QUESTIONS) return;
-  customPlan.push('mc');
-  renderCustom();
-}
-
-function removeCustom(i) {
-  if (customPlan.length <= 1) { showMsg('A quiz needs at least one question.'); return; }
-  customPlan.splice(i, 1);
-  renderCustom();
-}
-
-function customBack() { makerStage = 'setup'; renderMakerStep(); }
-function customNext() { beginQuestions(customPlan); }
-
-function renderEditList() {
-  setProgress(100);
-  const rows = questions.map((q, i) => {
-    const typeTag = q.type === 'mc' ? 'MC' : 'T/F';
-    const preview = q.text.length > 50 ? q.text.slice(0, 50) + '…' : q.text;
-    return `
-      <div class="plan-row" style="cursor:pointer;" onclick="startEditQuestion(${i})">
-        <span class="plan-num">Q${i+1} <span style="color:var(--muted);font-size:11px;font-weight:400;">${typeTag}</span></span>
-        <span dir="auto" style="flex:1;font-size:13px;color:var(--text-softer);padding:0 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(preview)}</span>
-        <span style="font-size:13px;color:var(--muted);">Edit →</span>
-      </div>`;
-  }).join('');
-  document.getElementById('makerContent').innerHTML = `
-    <h2>Edit Questions</h2>
-    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Tap a question to edit it.</p>
-    <div class="plan-list">${rows}</div>
-    <div style="margin-top:24px;">
-      <button class="btn btn-outline" onclick="makerStage='questions';qIndex=plan.length;editMode=false;editIndex=-1;renderMakerStep();">← Back to Generate</button>
-    </div>`;
-}
-
-function renderMakerStep() {
-  if (makerStage === 'setup')    { renderSetup();    return; }
-  if (makerStage === 'custom')   { renderCustom();   return; }
-  if (makerStage === 'editlist') { renderEditList(); return; }
-
-  const isMC = qIndex < plan.length && plan[qIndex] === 'mc';
-  const isTF = qIndex < plan.length && plan[qIndex] === 'tf';
-  const qNum = qIndex + 1;
-  const mcCount = plan.filter(t => t === 'mc').length;
-  const tfCount = plan.length - mcCount;
-  const progress = Math.round((qIndex / plan.length) * 100);
-  setProgress(progress);
-
-  let html = '';
-
-  if (isMC) {
-    if (subStep === 0) {
-      const prefill = editMode ? esc(currentQ.text || '') : (currentQ.text ? esc(currentQ.text) : '');
-      html = `
-        <div class="q-counter">${editMode ? '✏️ Editing' : 'Multiple Choice'} — Question ${qNum} of ${plan.length}</div>
-        <h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>
-        <label>Type the question</label>
-        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. What is the capital of Egypt?">${prefill}</textarea>
-        <div style="margin-top:24px;">
-          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
-          <button class="btn" onclick="mcNext()">Next →</button>
-        </div>`;
-    } else if (subStep >= 1 && subStep <= 4) {
-      const letter = ['A','B','C','D'][subStep-1];
-      const prefillChoice = (currentQ.choices && currentQ.choices[subStep-1]) ? esc(currentQ.choices[subStep-1]) : '';
-      html = `
-        <div class="q-counter">${editMode ? '✏️ Editing' : 'Multiple Choice'} — Question ${qNum} of ${plan.length}</div>
-        <h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>
-        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
-        <label>Option ${letter}</label>
-        <input type="text" dir="auto" id="inp" placeholder="Type option ${letter}…" value="${prefillChoice}">
-        <div style="margin-top:24px;">
-          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
-          <button class="btn" onclick="mcNext()">Next →</button>
-        </div>`;
-    } else if (subStep === 5) {
-      html = `
-        <div class="q-counter">${editMode ? '✏️ Editing' : 'Multiple Choice'} — Question ${qNum} of ${plan.length}</div>
-        <h2>Correct Answer?</h2>
-        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
-        ${['A','B','C','D'].map((l,i) => `
-          <div class="answer-option ${mcAnswer===l?'selected':''}" onclick="selectMCAnswer('${l}')">
-            <span class="option-label">${l}</span>
-            <span dir="auto">${esc(currentQ.choices[i])}</span>
-          </div>`).join('')}
-        <div style="margin-top:24px;">
-          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
-          <button class="btn" onclick="mcFinish()">${editMode ? 'Complete ✓' : 'Save Question →'}</button>
-        </div>
-        <div class="msg" id="msg"></div>`;
-    }
-  } else if (isTF) {
-    const tfNum = qNum;
-    if (subStep === 0) {
-      const prefillTF = editMode ? esc(currentQ.text || '') : (currentQ.text ? esc(currentQ.text) : '');
-      html = `
-        <div class="q-counter">${editMode ? '✏️ Editing' : 'True / False'} — Question ${tfNum} of ${plan.length}</div>
-        <h2>${editMode ? 'Edit Question' : 'Question'} ${tfNum}</h2>
-        <label>Type the statement</label>
-        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. The internet is a type of Recording Media.">${prefillTF}</textarea>
-        <div style="margin-top:24px;">
-          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
-          <button class="btn" onclick="tfNext()">Next →</button>
-        </div>`;
-    } else if (subStep === 1) {
-      html = `
-        <div class="q-counter">${editMode ? '✏️ Editing' : 'True / False'} — Question ${tfNum} of ${plan.length}</div>
-        <h2>Correct Answer?</h2>
-        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
-        <div class="tf-options">
-          <button class="tf-btn ${tfAnswer==='True'?'selected':''}" onclick="selectTF('True')">True</button>
-          <button class="tf-btn ${tfAnswer==='False'?'selected':''}" onclick="selectTF('False')">False</button>
-        </div>
-        <div style="margin-top:24px;">
-          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
-          <button class="btn" onclick="tfFinish()">${editMode ? 'Complete ✓' : 'Save Question →'}</button>
-        </div>
-        <div class="msg" id="msg"></div>`;
-    }
-  } else {
-    // All done — save + share
-    html = `
-      <h2>Quiz Ready! 🎉</h2>
-      <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">All ${plan.length} questions are in. Save the quiz to get a link for your students.</p>
-      <div class="info-box">
-        <strong>${mcCount} Multiple Choice</strong> + <strong>${tfCount} True / False</strong><br>
-        Students open your link, enter their name and answer. As soon as each student finishes, their result is sent to you automatically — watch them come in on the Live Results page.
-      </div>
-      <div class="time-box">
-        <label>Time limit</label>
-        <div class="time-row">
-          <div class="time-field">
-            <input type="number" id="tHr" inputmode="numeric" min="0" max="24" value="${timeLimit.h}" onfocus="this.select()" oninput="setTime('h', this.value)">
-            <label for="tHr">hr</label>
-          </div>
-          <div class="time-field">
-            <input type="number" id="tMin" inputmode="numeric" min="0" value="${timeLimit.m}" onfocus="this.select()" oninput="setTime('m', this.value)">
-            <label for="tMin">min</label>
-          </div>
-          <div class="time-field">
-            <input type="number" id="tSec" inputmode="numeric" min="0" value="${timeLimit.s}" onfocus="this.select()" oninput="setTime('s', this.value)">
-            <label for="tSec">sec</label>
-          </div>
-        </div>
-        <div class="time-hint" id="timeSummary">${timeSummaryText(timeLimitSeconds())}</div>
-      </div>
-      <div class="opt-box">
-        <div class="check-row">
-          <input type="checkbox" id="hideFlashBox" aria-label="Hide the green / red flash after each answer" ${hideFlash ? 'checked' : ''} onchange="setHideFlash(this.checked)">
-          <span>Hide the green / red flash after each answer</span>
-        </div>
-        <div class="time-hint">When ticked, students don’t see right away whether an answer was correct. They see it in their result at the end.</div>
-        <div class="check-row" style="margin-top:18px;">
-          <input type="checkbox" id="shuffleBox" aria-label="Shuffle the questions and the answers for each student" ${shuffleOn ? 'checked' : ''} onchange="setShuffle(this.checked)">
-          <span>Shuffle the questions and the answers for each student</span>
-        </div>
-        <div class="time-hint">When ticked, every student gets the questions in a different random order, and the choices of each multiple-choice question are mixed up. The right answer stays the one you picked.</div>
-      </div>
-      <button class="btn" id="saveBtn" onclick="saveQuiz()" style="width:100%;">Save Quiz &amp; Get Link →</button>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
-        <button class="btn btn-outline" style="margin:0;" onclick="openEditList()">Edit Questions</button>
-        <button class="btn btn-outline" style="margin:0;" onclick="activateTaker()">Try it as a student</button>
-        <button class="btn btn-outline" style="margin:0;grid-column:1/-1;" onclick="startMaker()">Rebuild Quiz</button>
-      </div>
-      <div class="msg" id="msg"></div>`;
-    setProgress(100);
-  }
-
-  document.getElementById('makerContent').innerHTML = html;
-  const inp = document.getElementById('inp');
-  if (inp) inp.focus();
-}
-
-// ── MAKER: time limit ──────────────────────────────────
-function timeLimitSeconds() { return timeLimit.h * 3600 + timeLimit.m * 60 + timeLimit.s; }
-
-function limitText(sec) {
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-  return [h && (h + ' hr'), m && (m + ' min'), s && (s + ' sec')].filter(Boolean).join(' ');
-}
-
-function timeSummaryText(sec) {
-  if (sec > MAX_TIME) return 'The longest time limit is 24 hours.';
-  return sec ? 'Time limit: ' + limitText(sec) + '. The timer starts when a student taps Start Quiz.'
-             : 'No time limit (0 = unlimited). Students can take as long as they need.';
-}
-
-function setTime(part, val) {
-  timeLimit[part] = Math.max(0, parseInt(val, 10) || 0);
-  const el = document.getElementById('timeSummary');
-  if (el) el.textContent = timeSummaryText(timeLimitSeconds());
-}
-
-function setHideFlash(v) { hideFlash = !!v; }
-function setShuffle(v) { shuffleOn = !!v; }
-
-function mcNext() {
-  const inp = document.getElementById('inp');
-  const val = inp ? inp.value.trim() : '';
-  if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
-
-  if (subStep === 0) {
-    if (editMode) {
-      currentQ.text = val;
-      // Keep existing choices and answer for edit mode
-      if (!currentQ.choices) currentQ.choices = [];
-    } else {
-      currentQ = { type:'mc', text: val, choices: [], answer: '' };
-    }
-  } else {
-    // subStep 1-4: setting choices
-    const idx = subStep - 1;
-    if (!currentQ.choices) currentQ.choices = [];
-    currentQ.choices[idx] = val;
-  }
-  subStep++;
-  if (subStep < 5) {
-    // Only reset mcAnswer when we're NOT in edit mode (so existing answer stays highlighted)
-    if (!editMode) mcAnswer = null;
-  }
-  renderMakerStep();
-}
-
-function selectMCAnswer(l) {
-  mcAnswer = l;
-  renderMakerStep();
-}
-
-function mcFinish() {
-  if (!mcAnswer) { showMsg('Please select the correct answer.'); return; }
-  currentQ.answer = mcAnswer;
-  if (editMode) {
-    questions[editIndex] = { ...currentQ };
-    editMode = false;
-    editIndex = -1;
-    currentQ = {};
-    mcAnswer = null;
-    openEditList();
-    return;
-  }
-  questions.push({...currentQ});
-  qIndex++;
-  subStep = 0;
-  currentQ = {};
-  mcAnswer = null;
-  renderMakerStep();
-}
-
-function tfNext() {
-  const inp = document.getElementById('inp');
-  const val = inp ? inp.value.trim() : '';
-  if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
-  if (editMode) {
-    currentQ.text = val;
-    // Keep existing tfAnswer so the current selection stays highlighted
-  } else {
-    currentQ = { type:'tf', text: val, answer: '' };
-    tfAnswer = null;
-  }
-  subStep = 1;
-  renderMakerStep();
-}
-
-function selectTF(v) {
-  tfAnswer = v;
-  renderMakerStep();
-}
-
-function tfFinish() {
-  if (!tfAnswer) { showMsg('Please select True or False.'); return; }
-  currentQ.answer = tfAnswer;
-  if (editMode) {
-    questions[editIndex] = { ...currentQ };
-    editMode = false;
-    editIndex = -1;
-    currentQ = {};
-    tfAnswer = null;
-    openEditList();
-    return;
-  }
-  questions.push({...currentQ});
-  qIndex++;
-  subStep = 0;
-  currentQ = {};
-  tfAnswer = null;
-  renderMakerStep();
-}
-
-// ── MAKER: BACK navigation ─────────────────────────────
-function makerBack() {
-  if (editMode) {
-    if (subStep > 0) {
-      subStep--;
-      renderMakerStep();
-    } else {
-      // subStep === 0 in edit mode → back to edit list
-      editMode = false;
-      editIndex = -1;
-      currentQ = {};
-      mcAnswer = null;
-      tfAnswer = null;
-      openEditList();
-    }
-    return;
-  }
-
-  if (subStep > 0) {
-    subStep--;
-    renderMakerStep();
-  } else if (qIndex > 0) {
-    // Go back to previous question — restore it from questions[]
-    qIndex--;
-    const prev = questions[qIndex];
-    questions.splice(qIndex, 1);   // pull it out so it can be re-entered
-    currentQ = { ...prev, choices: prev.choices ? [...prev.choices] : [] };
-    if (prev.type === 'mc') {
-      subStep = 5;                 // land on answer-selection step
-      mcAnswer = prev.answer || null;
-    } else {
-      subStep = 1;                 // land on True/False answer step
-      tfAnswer = prev.answer || null;
-    }
-    renderMakerStep();
-  } else {
-    // First question, subStep 0 → back to setup / custom
-    makerStage = presetChoice === 'custom' ? 'custom' : 'setup';
-    renderMakerStep();
-  }
-}
-
-// ── MAKER: edit question list ───────────────────────────
-function openEditList() {
-  makerStage = 'editlist';
-  renderMakerStep();
-}
-
-function startEditQuestion(i) {
-  editMode = true;
-  editIndex = i;
-  qIndex = i;
-  const q = questions[i];
-  currentQ = { ...q, choices: q.choices ? [...q.choices] : [] };
-  subStep = 0;
-  if (q.type === 'mc') {
-    mcAnswer = q.answer || null;
-  } else {
-    tfAnswer = q.answer || null;
-  }
-  makerStage = 'questions';
-  renderMakerStep();
-}
-
-// ── SAVE + SHARE LINK ──────────────────────────────────
-async function saveQuiz() {
-  const tl = timeLimitSeconds();
-  if (tl > MAX_TIME) { showMsg('The longest time limit is 24 hours.'); return; }
-  const flashBox = document.getElementById('hideFlashBox');
-  const shuffleBox2 = document.getElementById('shuffleBox');
-  const hf = flashBox ? flashBox.checked : hideFlash;
-  const sh = shuffleBox2 ? shuffleBox2.checked : shuffleOn;
-  const quiz = validateQuiz({ v: 1, id: newQuizId(), t: tl, hf: hf, sh: sh, questions: questions });
-  if (!quiz) { showMsg('Something is wrong with the quiz. Please rebuild it.'); return; }
-  const btn = document.getElementById('saveBtn');
-
-  let artifact = null;
-  try {
-    artifact = (window.claude && window.claude.use) ? await window.claude.use('artifact') : null;
-  } catch (e) {}
-
-  if (artifact) {
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-    try {
-      await artifact.publish(buildPageHtml(quiz));   // the page reloads with the quiz built in
-      showMsg('Saved ✓ Reloading…', 'msg', true);
-    } catch (e) {
-      const code = e && e.code;
-      if (code === 'conflict') return;               // page is already reloading to the newer version
-      if (btn) { btn.disabled = false; btn.textContent = 'Save Quiz & Get Link →'; }
-      const text =
-        (code === 'not_writer' || code === 'not_granted' || code === 'not_declared' || code === 'consent_required' || code === 'capability_disabled')
-          ? 'Only the owner of this page can save the quiz. Open it from your own account.' :
-        code === 'too_large' ? 'The quiz is too large to save.' :
-        code === 'rate_limited' ? 'Too many saves. Wait a moment and try again.' :
-        'Could not save the quiz. Please try again.';
-      showMsg(text);
-    }
-    return;
-  }
-
-  // Standalone copy of the page: put the quiz inside the link itself.
-  const base = location.href.split('#')[0];
-  let link;
-  let secureData = null;
-  linkWhy = [];
-  try {
-    if (!cryptoReady()) throw new Error(cryptoWhy());
-    secureData = await window.QuizCrypto.encode(quiz);
-    link = base + '#q=' + secureData;
-  } catch (e) {
-    linkWhy.push('encryption: ' + ((e && e.message) || 'failed'));
-    link = base + '#quiz=' + encodeQuiz(quiz);   // browser can't encrypt: use the older, longer link
-  }
-  let note = '';
-  const isLocal = location.protocol === 'file:' || /^(localhost|127\.|192\.168\.)/.test(location.hostname);
-  if (!isLocal) {
-    if (btn) { btn.disabled = true; btn.textContent = 'Creating link…'; }
-    let short = null;
-    if (secureData) {
-      const code = await serverSave(secureData);      // 1) our own link server: #s=code
-      if (code) short = base + '#s=' + code;
-    }
-    if (!short) short = await shortenLink(link);      // 2) backup: is.gd
-    if (short) link = short;
-    else note = 'Couldn’t shorten the link (' + linkWhy.join('; ') + '). This is the full link, and it works the same. [page ' + PAGE_VERSION + ']';
-  }
-  renderLinkPanel(link, quiz.id);
-  if (note) showMsg(note, 'msg');
-}
-
-// Shortens automatically with the free is.gd service. Returns null on any problem,
-// and the full link is used instead.
-async function shortenLink(url) {
-  try {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 7000);
-    const r = await fetch('https://is.gd/create.php?format=json&url=' + encodeURIComponent(url), { signal: ctl.signal });
-    clearTimeout(timer);
-    const d = await r.json();
-    if (d && typeof d.shorturl === 'string' && d.shorturl.indexOf('https://is.gd/') === 0) return d.shorturl;
-    linkWhy.push('is.gd: ' + ((d && d.errormessage) || 'no link'));
-    return null;
-  } catch (e) {
-    linkWhy.push('is.gd: ' + (e && e.name === 'AbortError' ? 'timed out' : (e && e.message) || 'blocked'));
-    return null;
-  }
-}
-
-function renderLinkPanel(link, id) {
-  const fileNote = location.protocol === 'file:'
-    ? '<p class="screenshot-hint" style="text-align:left;">This page is open from a file on your computer, so students can’t open this link. Put the page online first, then create the link again.</p>'
-    : '';
-  const liveBtn = id
-    ? `<div style="margin-top:12px;"><a class="btn btn-outline" href="#live=${esc(id)}" target="_blank" rel="noopener">Live Results →</a></div>`
-    : '';
-  document.getElementById('makerContent').innerHTML = `
-    <h2>Your student link 🔗</h2>
-    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Send this link to your students. The quiz is compressed and encrypted inside it, so the answers can’t be read from the link.</p>
-    <input type="text" id="linkBox" readonly value="${esc(link)}" onclick="this.select()">
-    <div style="margin-top:20px;">
-      <button class="btn" onclick="copyLink()">Copy Link</button>
-      <button class="btn btn-outline" style="margin-left:10px;" onclick="renderMakerStep()">Back</button>
-    </div>
-    ${liveBtn}
-    <p class="time-hint" style="margin-top:10px;">Live Results opens in a new tab and updates on its own as students finish — keep it open on your screen or projector.</p>
-    <div class="msg" id="msg"></div>
-    ${fileNote}`;
-}
-
-async function copyLink() {
-  const box = document.getElementById('linkBox');
-  if (!box) return;
-  box.select();
-  let ok = false;
-  try { await navigator.clipboard.writeText(box.value); ok = true; } catch (e) {}
-  if (!ok) { try { ok = document.execCommand('copy'); } catch (e) {} }
-  showMsg(ok ? 'Link copied ✓' : 'Press and hold the link to copy it.', 'msg', ok);
-}
-
-// ── TEACHER PANEL (saved quiz, owner only) ─────────────
-async function detectTeacher() {
-  try {
-    if (!window.claude || !window.claude.use) return;
-    const user = await window.claude.use('user');
-    if (!user) return;
-    const canEdit = await user.canEdit();
-    if (canEdit && (!takerStarted || restored) && !teacherMode) renderTeacherPanel();
-  } catch (e) {}
-}
-
-function renderTeacherPanel() {
-  teacherMode = true;
-  const mc = quizData.filter(q => q.type === 'mc').length;
-  const tf = quizData.length - mc;
-  document.getElementById('home').innerHTML = `
-    <div class="brand">© Youssef Hisham 2026</div>
-    <h1>Your quiz is live</h1>
-    <p class="subtitle">Only you see this screen. Students who open this page’s link go straight to the quiz.</p>
-    <div class="info-box">
-      <strong>${mc} Multiple Choice</strong> + <strong>${tf} True / False</strong><br>${quizTime ? '⏱ Time limit: ' + limitText(quizTime) : '⏱ No time limit'}<br>${quizHideFlash ? '👁 Green / red answer flash: hidden' : '👁 Green / red answer flash: shown'}<br>${quizShuffle ? '🔀 Questions and answers are shuffled for each student' : '🔀 Questions and answers are not shuffled'}<br><br>
-      1. Copy this page’s link (use the share option where you opened it).<br>
-      2. Send it to your students.<br>
-      3. Each student enters their name and answers. Their result is sent to you automatically as soon as they finish.
-    </div>
-    <div style="display:flex; gap:12px;">
-      <button class="btn" onclick="previewSaved()">Preview as Student</button>
-      <button class="btn btn-outline" onclick="startMaker()">Build a New Quiz</button>
-    </div>`;
-  show('home');
-}
-
-function previewSaved() {
-  previewMode = true;
-  resetTaker();
-  show('taker');
-  renderTakerName();
-}
-
-function exitPreview() {
-  previewMode = false;
-  resetTaker();
-  if (teacherMode) {
-    renderTeacherPanel();
-  } else {
-    show('maker');
-    renderMakerStep();
-  }
-}
-
-// ── TAKER ──────────────────────────────────────────────
-function initQueue() {
-  // Every student gets their own random question order and their own random order of the choices.
-  // (or, when the teacher unticked shuffling, everyone gets the quiz exactly as it was built)
-  const plain = quizData ? quizData.map((_, i) => i) : [];
-  fullOrder = quizShuffle ? shuffled(plain) : plain;
-  perms = quizData ? quizData.map(q => q.type === 'mc' ? (quizShuffle ? shuffled([0, 1, 2, 3]) : [0, 1, 2, 3]) : null) : [];
-  queue = fullOrder.slice();
-  answerMap = quizData ? quizData.map(() => null) : [];
-}
-
-function resetTaker() {
-  initQueue();
-  takerAnswers = [];
-  takerName = '';
-  takerStarted = false;
-  restored = false;
-  quizLocked = false;
-  takerBusy = false;
-  resultSubmitted = false;
-  stopTimer();
-  timeIsUp = false;
-  timerStart = 0;
-}
-
-function activateTaker() {
-  if (timeLimitSeconds() > MAX_TIME) { showMsg('The longest time limit is 24 hours.'); return; }
-  quizData = [...questions];
-  quizTime = timeLimitSeconds();
-  // Read directly from checkbox in case the global got out of sync
-  const flashBox = document.getElementById('hideFlashBox');
-  quizHideFlash = flashBox ? flashBox.checked : hideFlash;
-  const shuffleBox = document.getElementById('shuffleBox');
-  quizShuffle = shuffleBox ? shuffleBox.checked : shuffleOn;
-  previewMode = true;
-  resetTaker();
-  show('taker');
-  renderTakerName();
-}
-
-function startTaker() {
-  if (!quizData) {
-    showMsg('There is no quiz on this page yet. Open the link your teacher sent you.', 'homeMsg');
-    return;
-  }
-  previewMode = true;
-  resetTaker();
-  show('taker');
-  renderTakerName();
-}
-
-function renderTakerName() {
-  document.getElementById('takerContent').innerHTML = `
-    <h2>Welcome</h2>
-    <p style="color:var(--muted);font-size:14px;margin-bottom:28px;">Enter your name before starting the quiz.</p>
-    ${quizTime ? `<div class="info-box">⏱ You have <strong>${limitText(quizTime)}</strong> to finish this quiz. The timer starts when you tap Start Quiz.</div>` : ''}
-    <div class="name-input-wrap">
-      <label>Your Name</label>
-      <input type="text" dir="auto" id="studentName" placeholder="e.g. Ahmed Mohamed" maxlength="60">
-    </div>
-    <button class="btn" id="startBtn" onclick="beginQuiz()">Start Quiz →</button>
-    <div class="msg" id="startMsg"></div>
-    ${previewMode ? '<div style="margin-top:20px;"><button class="btn btn-outline" onclick="exitPreview()">Exit preview</button></div>' : ''}`;
-}
-
-// ── ONE ATTEMPT PER STUDENT (checked on the server) ────
-// The browser can only remember progress on its own device, so a new browser, incognito
-// or cleared data used to give a fresh attempt. Now, when a student taps Start Quiz, the
-// server records "this name started this quiz". A second start with the same name is
-// refused, on any device or browser. The teacher's preview never asks the server.
-// A rough "which phone is this" signature. It is only used to WARN the teacher, never to block:
-// phone type, screen size, pixel density, time zone and language. It is the same in every browser on
-// one phone (and in incognito), which is why it catches "same phone, different name".
-async function deviceInfo() {
-  try {
-    const ua = navigator.userAgent || '';
-    const platform = /iPhone|iPad|iPod/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : 'Other';
-    // Real screen size in physical pixels (CSS size x pixel density). Browser zoom changes both numbers
-    // but not the result, so Chrome, Firefox, Edge, etc. on one device give the same value.
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.round(Math.min(screen.width, screen.height) * dpr / 20) * 20;
-    const h = Math.round(Math.max(screen.width, screen.height) * dpr / 20) * 20;
-    let tz = '';
-    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
-    let model = '';
-    try {
-      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
-        const v = await navigator.userAgentData.getHighEntropyValues(['model']);
-        model = (v && v.model) ? String(v.model).slice(0, 40) : '';
-      }
-    } catch (e) {}
-    const src = [platform, w + 'x' + h, tz].join('|');
-    return { sig: hashStr(src) + hashStr(src.split('').reverse().join('')), label: platform + (model ? ' ' + model : '') + ' · ' + w + '×' + h };
-  } catch (e) {
-    return { sig: '', label: '' };
-  }
-}
-
-async function claimAttempt(name) {
-  if (previewMode || !quizId || !SHORT_API) return { ok: true };
-  if (!attemptToken) attemptToken = newQuizId() + newQuizId();
-  const dev = await deviceInfo();
-  try {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 8000);
-    const r = await fetch(SHORT_API + '/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: quizId, name: name, token: attemptToken, sig: dev.sig, label: dev.label }),
-      signal: ctl.signal
-    });
-    clearTimeout(timer);
-    if (r.status === 409) return { ok: false, reason: 'taken' };
-    if (r.status === 404 || r.status === 405) return { ok: true };   // server not updated yet: don't block anyone
-    if (!r.ok) return { ok: false, reason: 'server' };
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, reason: 'network' };
-  }
-}
-
-async function beginQuiz() {
-  const nameEl = document.getElementById('studentName');
-  const btn = document.getElementById('startBtn');
-  if (btn && btn.disabled) return;
-  const n = nameEl.value.trim();
-  if (!n) { nameEl.style.borderColor='#b83232'; return; }
-  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
-  showMsg('', 'startMsg');
-  const claim = await claimAttempt(n);
-  if (!claim.ok) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Start Quiz →'; }
-    showMsg(claim.reason === 'taken'
-      ? 'This name has already started this quiz, so it can’t be taken again. If this is a mistake (for example your phone switched off), tell your teacher.'
-      : 'Could not reach the server. Check your internet connection and tap Start Quiz again.', 'startMsg');
-    return;
-  }
-  takerName = n;
-  takerStarted = true;
-  timerStart = Date.now();
-  saveProgress();
-  renderTakerQ();
-  startTimerTick();
-}
-
-function renderTakerQ() {
-  takerBusy = false;
-  if (quizLocked) { renderLocked(); return; }
-  const idx = queue[0];
-  const q = quizData[idx];
-  const total = quizData.length;
-  const pct = Math.round(((total - queue.length) / total) * 100);
-
-  let html = `
-    <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-    <div class="q-row">
-      <div class="q-counter">Question ${fullOrder.indexOf(idx)+1} of ${total} · ${q.type==='mc'?'Multiple Choice':'True / False'}</div>
-      ${quizTime ? '<div class="timer-pill" id="timerBox"></div>' : ''}
-    </div>
-    <h2 dir="auto" style="margin-bottom:24px;">${esc(q.text)}</h2>`;
-
-  if (q.type === 'mc') {
-    const pm = perms[idx] || [0, 1, 2, 3];      // slot i shows the choice that was originally number pm[i]
-    html += ['A','B','C','D'].map((l,i) => {
-      const orig = 'ABCD'[pm[i]];                // the letter you gave it when you built the quiz
-      return `
-      <div class="answer-option" data-orig="${orig}" onclick="selectAnswer('${orig}')">
-        <span class="option-label">${l}</span>
-        <span dir="auto">${esc(q.choices[pm[i]])}</span>
-      </div>`;
-    }).join('');
-  } else {
-    html += `<div class="tf-options">
-      <button class="tf-btn" onclick="selectAnswer('True')">True</button>
-      <button class="tf-btn" onclick="selectAnswer('False')">False</button>
-    </div>`;
-  }
-
-  // Skip: the question comes back at the end (not shown when it is the last one left)
-  if (queue.length > 1) {
-    html += `<div class="skip-row"><button class="btn btn-outline skip-btn" onclick="skipQuestion()">Skip for now</button></div>`;
-  }
-
-  document.getElementById('takerContent').innerHTML = html;
-  if (quizTime) paintTimer(timeLeft());
-}
-
-// ── TIMER ──────────────────────────────────────────────
-// Counts from the moment Start Quiz was tapped (saved on the device, so a refresh doesn't reset it).
-function timeLeft() {
-  return Math.max(0, Math.ceil((quizTime * 1000 - (Date.now() - timerStart)) / 1000));
-}
-
-function fmtClock(sec) {
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-  const p = n => String(n).padStart(2, '0');
-  return h ? h + ':' + p(m) + ':' + p(s) : p(m) + ':' + p(s);
-}
-
-function paintTimer(left) {
-  const box = document.getElementById('timerBox');
-  if (!box) return;
-  box.textContent = '⏱ ' + fmtClock(left);
-  box.classList.toggle('low', left <= Math.min(60, Math.ceil(quizTime / 5)));
-}
-
-function timerTick() {
-  const left = timeLeft();
-  paintTimer(left);
-  if (left <= 0) timeUp();
-}
-
-function startTimerTick() {
-  stopTimer();
-  if (!quizTime) return;
-  timerId = setInterval(timerTick, 1000);
-}
-
-function stopTimer() {
-  if (timerId) { clearInterval(timerId); timerId = null; }
-}
-
-// Time ran out: questions not answered yet count as wrong, and the result screen appears.
-function timeUp() {
-  stopTimer();
-  if (timeIsUp || quizLocked) return;
-  timeIsUp = true;
-  queue.forEach(i => {
-    const q = quizData[i];
-    answerMap[i] = { question: q.text, given: 'No answer', correct: q.answer, right: false };
-  });
-  queue = [];
-  takerAnswers = answerMap.slice();
-  quizLocked = true;
-  takerBusy = false;
-  saveProgress();
-  renderResult();
-}
-
-function skipQuestion() {
-  if (quizLocked || takerBusy || queue.length < 2) return;
-  const now = Date.now();
-  if (now - lastSkipAt < 400) return;            // a quick double-tap must not skip two questions
-  lastSkipAt = now;
-  queue.push(queue.shift());
-  saveProgress();
-  renderTakerQ();
-}
-
-function selectAnswer(val) {
-  if (quizLocked || takerBusy) return;
-  takerBusy = true;
-  const idx = queue[0];
-  const q = quizData[idx];
-
-  // Flash correct/wrong briefly then move on
-  const isCorrect = val === q.answer;
-  answerMap[idx] = { question: q.text, given: val, correct: q.answer, right: isCorrect };
-  queue.shift();
-  saveProgress();
-
-  // Highlight
-  if (q.type === 'mc') {
-    document.querySelectorAll('.answer-option').forEach(el => {
-      const l = el.getAttribute('data-orig');
-      if (l === val) el.classList.add(quizHideFlash ? 'selected' : (isCorrect ? 'correct' : 'wrong'));
-      if (!quizHideFlash && l === q.answer && !isCorrect) el.classList.add('correct');
-    });
-  } else {
-    document.querySelectorAll('.tf-btn').forEach(el => {
-      if (el.textContent === val) el.classList.add(quizHideFlash ? 'selected' : (isCorrect ? 'correct' : 'wrong'));
-      if (!quizHideFlash && el.textContent === q.answer && !isCorrect) el.classList.add('correct');
-    });
-  }
-
-  setTimeout(() => {
-    if (timeIsUp) return;                        // time ran out while the answer was showing
-    if (queue.length === 0) {
-      takerAnswers = answerMap.slice();          // results are listed in the original question order
-      quizLocked = true;
-      renderResult();
-    } else {
-      renderTakerQ();
-    }
-  }, quizHideFlash ? 400 : 800);
-}
-
-function renderResult() {
-  const score = takerAnswers.filter(a => a.right).length;
-  const total = takerAnswers.length;
-  const pct = Math.round((score / total) * 100);
-  const grade = gradeFor(pct);
-
-  stopTimer();
-  const timedOut = takerAnswers.some(a => a.given === 'No answer');
-
-  let rows = takerAnswers.map((a,i) => `
-    <div class="breakdown-row">
-      <span dir="auto">Q${i+1}: ${esc(a.question.length>40?a.question.slice(0,40)+'…':a.question)}</span>
-      <span class="${a.right?'correct-tag':'wrong-tag'}">${a.right?'✓ Correct':'✗ Wrong'}</span>
-    </div>`).join('');
-
-  const statusText = previewMode ? '' : (resultSubmitted ? '✅ Your result has been sent to your teacher.' : '📤 Sending your result to your teacher…');
-
-  document.getElementById('takerContent').innerHTML = `
-    <div class="result-name" dir="auto">${esc(takerName)}</div>
-    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">© Youssef Hisham 2026</div>
-    <div class="result-score">${score}/${total}</div>
-    <div class="result-label">${grade} · ${pct}%</div>
-    ${timedOut ? '<p class="time-note">⏰ Time was up. Questions you didn’t answer were marked wrong.</p>' : ''}
-    <div class="result-breakdown">${rows}</div>
-    <p class="screenshot-hint" id="resultMsg">${statusText}</p>
-    <div class="home-btns">
-      <button class="btn" onclick="closeQuiz()">${previewMode ? 'Exit Preview' : 'Close Quiz'}</button>
-    </div>`;
-
-  if (!previewMode) reportResult();
-}
-
-// Sends this student's result to the live results server. Silent — the student
-// doesn't need to do anything. Retries once if the first attempt fails.
-async function reportResult() {
-  if (previewMode || resultSubmitted || !quizId) return;
-  const payload = {
-    id: quizId,
-    name: takerName,
-    score: takerAnswers.filter(a => a.right).length,
-    total: takerAnswers.length,
-    breakdown: takerAnswers.map(a => ({ q: a.question, r: a.right }))
-  };
-  const trySend = async () => {
-    try {
-      const r = await fetch(SHORT_API + '/submit-result', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const now = Date.now();
+      await env.QUIZZES.put(key, JSON.stringify({ token, t: now, n: display }), {
+        expirationTtl: START_KEEP_SECONDS,
+        metadata: { n: display, t: now, lim, d: 0 }      // what the "Who's in the test" page lists
       });
-      return r.ok;
-    } catch (e) { return false; }
-  };
-  let ok = await trySend();
-  if (!ok) { await new Promise(res => setTimeout(res, 4000)); ok = await trySend(); }
-  const el = document.getElementById('resultMsg');
-  if (ok) {
-    resultSubmitted = true;
-    saveProgress();
-    if (el) el.textContent = '✅ Your result has been sent to your teacher.';
-  } else if (el) {
-    el.textContent = '⚠️ Could not reach the server. Please tell your teacher your score directly: ' + payload.score + '/' + payload.total + '.';
-  }
-}
+      try { await env.QUIZZES.delete('reset:' + id + ':' + name); } catch (e) {}   // a new start ends any pending "give another try"
 
-function closeQuiz() {
-  if (previewMode) { exitPreview(); return; }
-  renderLocked();
-}
-
-function renderLocked() {
-  document.getElementById('takerContent').innerHTML = `
-    <div class="locked">
-      <div class="locked-icon">🔒</div>
-      <h2>Quiz Closed</h2>
-      <p style="color:var(--muted);font-size:14px;margin-top:8px;">This quiz session has ended.<br>Please contact your teacher for a new session.</p>
-    </div>`;
-}
-
-// ── LIVE RESULTS (teacher's screen) ────────────────────
-function startLiveResults(id) {
-  liveQuizId = id;
-  show('live');
-  renderLiveResults([]);
-  pollLiveResults();
-  if (livePollId) clearInterval(livePollId);
-  livePollId = setInterval(pollLiveResults, 3000);
-}
-
-async function pollLiveResults() {
-  if (!liveQuizId) return;
-  try {
-    const r = await fetch(SHORT_API + '/results?id=' + encodeURIComponent(liveQuizId));
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d && Array.isArray(d.results)) renderLiveResults(d.results, d.flags);
-  } catch (e) {}
-}
-
-// Warning box: a different name started on what looks like the same phone as an earlier student.
-function renderLiveFlags(flags) {
-  const box = document.getElementById('liveFlags');
-  if (!box) return;
-  if (!Array.isArray(flags) || !flags.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
-  box.style.display = 'block';
-  box.innerHTML = '<strong>⚠️ Possible retakes</strong> — worth a look:' + flags.slice().reverse().map(f => `
-    <div style="margin-top:8px;"><strong dir="auto">${esc(f.n)}</strong> started on what looks like the same phone as <strong dir="auto">${esc((Array.isArray(f.of) ? f.of : []).join(', '))}</strong>${f.ip ? ' (same network too)' : ''}${f.d ? ' · ' + esc(f.d) : ''}</div>`).join('');
-}
-
-function renderLiveResults(list, flags) {
-  renderLiveFlags(flags);
-  const grid = document.getElementById('liveGrid');
-  const status = document.getElementById('liveStatus');
-  if (!grid || !status) return;
-  if (!list.length) {
-    status.textContent = 'Waiting for students to finish… this page updates on its own.';
-    grid.innerHTML = '';
-    return;
-  }
-  status.textContent = list.length + (list.length === 1 ? ' student has' : ' students have') + ' submitted so far. This page updates automatically.';
-  const ordered = list.slice().reverse();   // newest first
-  grid.innerHTML = ordered.map(miniResultCard).join('');
-}
-
-function miniResultCard(res) {
-  const pct = Math.round((res.s / res.t) * 100);
-  const grade = gradeFor(pct);
-  let time = '';
-  try { time = res.ts ? new Date(res.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; } catch (e) {}
-  const rows = (Array.isArray(res.b) ? res.b : []).map((row, i) => `
-    <div class="mini-row">
-      <span dir="auto">Q${i+1}: ${esc(row.q)}</span>
-      <span class="${row.r?'correct-tag':'wrong-tag'}">${row.r?'✓':'✗'}</span>
-    </div>`).join('');
-  return `
-    <div class="mini-card">
-      <div class="mini-name" dir="auto">${esc(res.n)}</div>
-      <div class="mini-time">${time}</div>
-      <div class="mini-score">${res.s}/${res.t}</div>
-      <div class="mini-grade">${grade} · ${pct}%</div>
-      <div class="mini-breakdown">${rows}</div>
-    </div>`;
-}
-
-// ── PULL DOWN FROM THE HEADER TO REFRESH ───────────────
-// The page uses its own scroll area, and the browser's built-in pull-to-refresh is switched off
-// (overscroll-behavior), so this does it by hand: touch the header, drag down, let go.
-(function () {
-  const TRIGGER = 90;            // how far to pull (after a little resistance) before it refreshes
-  let startY = null, pull = 0;
-
-  function getPtr() {
-    let p = document.getElementById('ptr');
-    if (!p) {
-      p = document.createElement('div');
-      p.id = 'ptr';
-      p.textContent = '↻';
-      document.body.appendChild(p);
+      // Soft device warning. Any problem here must never stop a student from starting.
+      const sig = typeof body.sig === 'string' && /^[a-z0-9]{4,24}$/.test(body.sig) ? body.sig : '';
+      const label = typeof body.label === 'string' ? body.label.slice(0, 80) : '';
+      if (sig && display) {
+        try { await noteDevice(env, id, sig, display, label, await ipHash(request, id)); } catch (e) {}
+      }
+      return done();
     }
-    return p;
-  }
 
-  function hidePtr() {
-    const p = document.getElementById('ptr');
-    if (!p) return;
-    p.classList.remove('spin');
-    p.style.transition = 'transform 0.2s, opacity 0.2s';
-    p.style.opacity = '0';
-    p.style.transform = 'translateY(-60px)';
-    p.style.borderColor = '';
-  }
-
-  document.addEventListener('touchstart', function (e) {
-    const onHeader = e.target && e.target.closest && e.target.closest('.site-header');
-    if (!onHeader || e.touches.length !== 1) { startY = null; return; }
-    startY = e.touches[0].clientY;
-    pull = 0;
-  }, { passive: true });
-
-  document.addEventListener('touchmove', function (e) {
-    if (startY === null) return;
-    const dy = e.touches[0].clientY - startY;
-    if (dy <= 0) { pull = 0; hidePtr(); return; }
-    pull = Math.min(dy * 0.6, 130);
-    const p = getPtr();
-    p.classList.remove('spin');
-    p.style.transition = 'none';
-    p.style.opacity = String(Math.min(1, pull / 40));
-    p.style.transform = 'translateY(' + (pull - 60) + 'px) rotate(' + Math.round(pull * 3) + 'deg)';
-    p.style.borderColor = pull >= TRIGGER ? 'var(--correct)' : '';   // turns green when letting go will refresh
-  }, { passive: true });
-
-  function release(cancelled) {
-    if (startY === null) return;
-    startY = null;
-    if (cancelled || pull < TRIGGER) { pull = 0; hidePtr(); return; }
-    pull = 0;
-    // A quiz that is still being built lives only on this page: ask before throwing it away.
-    if (Array.isArray(questions) && questions.length > 0 &&
-        !confirm('Refresh the page? The quiz you are building has not been saved and will be lost.')) {
-      hidePtr();
-      return;
+    // Status: POST /status  {id, name}  ->  {reset: true|false}
+    // A returning student's page asks whether the teacher gave this name another try.
+    if (request.method === 'POST' && url.pathname === '/status') {
+      if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return reply({ error: 'not allowed' }, 403);
+      let body;
+      try { body = await request.json(); } catch (e) { return reply({ error: 'bad request' }, 400); }
+      const id = body && body.id;
+      const k = normName(body && body.name);
+      if (!validQuizId(id) || !k || k.length > 120) return reply({ error: 'bad request' }, 400);
+      return reply({ reset: !!(await env.QUIZZES.get('reset:' + id + ':' + k)) });
     }
-    const p = getPtr();
-    p.style.transition = 'none';
-    p.style.opacity = '1';
-    p.style.borderColor = '';
-    p.classList.add('spin');
-    setTimeout(function () { location.reload(); }, 250);
-  }
 
-  document.addEventListener('touchend', function () { release(false); }, { passive: true });
-  document.addEventListener('touchcancel', function () { release(true); }, { passive: true });
-})();
+    // Live: POST /live  {id, tk}  ->  {now, items: [{k, n, t, lim, d}], roster, notStarted}
+    // Teacher only. Everyone who started, when, their time limit, and when they finished (d).
+    if (request.method === 'POST' && url.pathname === '/live') {
+      if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return reply({ error: 'not allowed' }, 403);
+      let body;
+      try { body = await request.json(); } catch (e) { return reply({ error: 'bad request' }, 400); }
+      const id = body && body.id;
+      if (!validQuizId(id) || !(await isOwner(env, id, body.tk))) return reply({ error: 'no access' }, 403);
 
-// ── START ──────────────────────────────────────────────
-try {
-  history.pushState(null, '', location.href);
-  window.addEventListener('popstate', () => {
-    try { history.pushState(null, '', location.href); } catch (e) {}
-  });
-} catch (e) {}
-
-(async () => {
-const liveMatch = location.hash.match(/^#live=([a-z0-9]{4,20})$/i);
-if (liveMatch) {
-  startLiveResults(liveMatch[1]);
-  return;
-}
-const shared = await loadSharedQuiz();
-if (shared) {
-  quizData = shared.quiz.questions;
-  quizId = shared.quiz.id || ('h' + hashStr(JSON.stringify(shared.quiz.questions)));
-  quizTime = shared.quiz.t || 0;
-  quizHideFlash = !!shared.quiz.hf;
-  quizShuffle = shared.quiz.sh !== false;
-  initQueue();
-  show('taker');
-  const saved = loadProgress();
-  if (saved) {
-    // This device already started (or finished) this quiz: continue, never restart.
-    restored = true;
-    takerName = saved.n;
-    takerStarted = true;
-    timerStart = (typeof saved.s === 'number' && saved.s > 0) ? saved.s : Date.now();
-    initQueue();
-    // Same shuffle as before the refresh (notes saved by an older version had none: keep the plain order)
-    fullOrder = isPerm(saved.f, quizData.length) ? saved.f.slice() : quizData.map((_, i) => i);
-    perms = quizData.map((q, i) => q.type !== 'mc' ? null : ((Array.isArray(saved.p) && isPerm(saved.p[i], 4)) ? saved.p[i].slice() : [0, 1, 2, 3]));
-    quizData.forEach((q, i) => {
-      const given = saved.g[i];
-      if (typeof given === 'string') answerMap[i] = { question: q.text, given: given, correct: q.answer, right: given === q.answer };
-    });
-    const remaining = quizData.map((_, i) => i).filter(i => !answerMap[i]);
-    let order = Array.isArray(saved.o) ? saved.o.filter(i => Number.isInteger(i) && remaining.includes(i)) : [];
-    remaining.forEach(i => { if (!order.includes(i)) order.push(i); });   // also covers older saved notes
-    queue = order;
-    if (queue.length === 0) {
-      takerAnswers = answerMap.slice();
-      quizLocked = true;
-      resultSubmitted = saved.r === true;
-      renderResult();
-    } else if (quizTime && Date.now() - timerStart >= quizTime * 1000) {
-      timeUp();                                   // time ran out while the student was away
-    } else {
-      renderTakerQ();
-      startTimerTick();
+      const prefix = 'start:' + id + ':';
+      const listed = await env.QUIZZES.list({ prefix, limit: 1000 });
+      const items = listed.keys.map(k => {
+        const m = k.metadata || {};
+        const kk = k.name.slice(prefix.length);
+        return { k: kk, n: typeof m.n === 'string' ? m.n : kk, t: Number(m.t) || 0, lim: Number(m.lim) || 0, d: Number(m.d) || 0 };
+      });
+      const roster = await getRoster(env, id);
+      const started = new Set(items.map(i => i.k));
+      return reply({
+        now: Date.now(),
+        items,
+        roster: !!roster,
+        notStarted: roster ? roster.filter(n => !started.has(normName(n))) : []
+      });
     }
-  } else {
-    renderTakerName();
+
+    // Reset: POST /reset  {id, tk, k}  ->  {ok: true}
+    // Teacher only. Gives one student another try: their name is free again, and their page
+    // (if they open the link again) forgets the earlier attempt.
+    if (request.method === 'POST' && url.pathname === '/reset') {
+      if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return reply({ error: 'not allowed' }, 403);
+      let body;
+      try { body = await request.json(); } catch (e) { return reply({ error: 'bad request' }, 400); }
+      const id = body && body.id;
+      if (!validQuizId(id) || !(await isOwner(env, id, body.tk))) return reply({ error: 'no access' }, 403);
+      const k = body && typeof body.k === 'string' ? body.k : '';
+      if (!k || k.length > 120 || !/^[\p{L}\p{N}]+$/u.test(k)) return reply({ error: 'bad name' }, 400);
+      await env.QUIZZES.put('reset:' + id + ':' + k, '1', { expirationTtl: KEEP_SECONDS });
+      await env.QUIZZES.delete('start:' + id + ':' + k);
+      return reply({ ok: true });
+    }
+
+    // ── LIVE RESULTS ──────────────────────────────────────
+
+    // Submit: POST /submit-result  {id, name, score, total, breakdown}  ->  {ok: true}
+    if (request.method === 'POST' && url.pathname === '/submit-result') {
+      if (request.headers.get('Origin') !== ALLOWED_ORIGIN) return reply({ error: 'not allowed' }, 403);
+      let body;
+      try { body = await request.json(); } catch (e) { return reply({ error: 'bad request' }, 400); }
+
+      const id = body && body.id;
+      const name = body && typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
+      const score = body && Number.isInteger(body.score) ? body.score : null;
+      const total = body && Number.isInteger(body.total) ? body.total : null;
+      const breakdown = cleanBreakdown(body && body.breakdown);
+
+      if (!validQuizId(id)) return reply({ error: 'bad id' }, 400);
+      if (!name) return reply({ error: 'bad name' }, 400);
+      if (score === null || total === null || score < 0 || total < 1 || total > 50 || score > total) {
+        return reply({ error: 'bad score' }, 400);
+      }
+      if (!breakdown) return reply({ error: 'bad breakdown' }, 400);
+
+      const key = 'results:' + id;
+      let list = [];
+      try { list = JSON.parse((await env.QUIZZES.get(key)) || '[]'); } catch (e) { list = []; }
+      if (!Array.isArray(list)) list = [];
+
+      list.push({ n: name, s: score, t: total, b: breakdown, ts: Date.now() });
+      if (list.length > MAX_RESULTS_PER_QUIZ) list = list.slice(list.length - MAX_RESULTS_PER_QUIZ);
+
+      await env.QUIZZES.put(key, JSON.stringify(list), { expirationTtl: RESULTS_KEEP_SECONDS });
+
+      // Mark this student as finished on the "Who's in the test" page.
+      try {
+        const sKey = 'start:' + id + ':' + normName(name);
+        const cur = await env.QUIZZES.getWithMetadata(sKey);
+        if (cur && cur.value) {
+          await env.QUIZZES.put(sKey, cur.value, {
+            expirationTtl: START_KEEP_SECONDS,
+            metadata: { ...(cur.metadata || {}), d: Date.now() }
+          });
+        }
+      } catch (e) {}
+      return reply({ ok: true });
+    }
+
+    // Fetch: GET /results?id=<quizId>  ->  {results: [...]}
+    if (request.method === 'GET' && url.pathname === '/results') {
+      const id = url.searchParams.get('id') || '';
+      if (!validQuizId(id)) return reply({ error: 'bad id' }, 400);
+      let list = [];
+      try { list = JSON.parse((await env.QUIZZES.get('results:' + id)) || '[]'); } catch (e) { list = []; }
+      if (!Array.isArray(list)) list = [];
+      let flags = [];
+      try { flags = JSON.parse((await env.QUIZZES.get('flags:' + id)) || '[]'); } catch (e) { flags = []; }
+      if (!Array.isArray(flags)) flags = [];
+      return reply({ results: list, flags });
+    }
+
+    return reply({ error: 'not found' }, 404);
   }
-  if (shared.source === 'page') detectTeacher();
-}
-})();
-</script>
-</body>
-</html>
+};
