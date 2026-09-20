@@ -1,107 +1,2960 @@
-/*
- * quiz-crypto.js — compresses + encrypts quiz links for Quiz Builder.
- * © Youssef Hisham 2026
- *
- * Keep this file in the SAME folder as index.html.
- *   quiz -> compact JSON -> deflate -> AES-GCM -> base64url   (links look like  #q=...)
- *
- * The quiz settings travel inside the encrypted part too (so a student can't edit them):
- *   time limit, hide the green / red flash, shuffle questions and answers.
- * Links made before those settings existed still open (they get the defaults).
- *
- * Question types packed into the link:
- *   Multiple choice  ->  [text, A, B, C, D, letter]
- *   True / False     ->  [text, 'T' or 'F']
- *   Custom Choice    ->  {k:'c', x:text, c:[choices...], a:[correct indexes...]}
- *   Written          ->  {k:'w', x:text}
- * Links made before Custom Choice and Written existed still open.
- *
- * To change the key: replace KEY_HEX with any 32 hex characters (0-9, a-f).
- * Links made with the old key stop working, so make new links afterwards.
- *
- * Note: the browser has to download this file to open a quiz, so the key is not
- * a real secret. This hides the answers from the link itself, not from a determined student.
- */
-(function () {
-const KEY_HEX = '3eff7e99a83a2cca8b346f029164e6e2';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/png" href="QLogo.png">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz Builder</title>
+<style id="app-css">
+  :root {
+    color-scheme: light;
+    --bg: #FAFAF8;
+    --surface: #F5F5F2;
+    --border: #E0E0DC;
+    --text: #1a1a1a;
+    --muted: #888;
+    --accent: #1a1a1a;
+    --correct: #2d7a4f;
+    --wrong: #b83232;
+    --radius: 12px;
+    --font: 'Segoe UI', system-ui, sans-serif;
+    --card-bg: #ffffff;
+    --text-soft: #444;
+    --text-softer: #555;
+    --transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    --btn-bg: #1a1a1a;
+    --btn-fg: #ffffff;
+  }
 
-function hexToBytes(h) { return Uint8Array.from(h.match(/.{2}/g), x => parseInt(x, 16)); }
-function bytesToB64(bytes) {
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121212;
+    --surface: #1c1c1c;
+    --border: #333331;
+    --text: #f0f0ee;
+    --muted: #9a9a97;
+    --accent: #f0f0ee;
+    --correct: #4caf7d;
+    --wrong: #e07070;
+    --card-bg: #1a1a1a;
+    --text-soft: #d8d8d6;
+    --text-softer: #c4c4c1;
+    --btn-bg: #f0f0ee;
+    --btn-fg: #121212;
+  }
+
+  body, .card, input, textarea, .btn, .answer-option, .tf-btn, .type-toggle button, .timer-pill {
+    transition: var(--transition);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+  html, body { overscroll-behavior-y: none; }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 999px;
+    border: 2px solid var(--bg);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #bbb; background-clip: padding-box; }
+  ::-webkit-scrollbar-corner { background: transparent; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .scroll-area {
+    position: fixed;
+    top: 64px;
+    bottom: 0;
+    left: 0; right: 0;
+    overflow-y: auto;
+    display: flex;
+    padding: 24px;
+  }
+
+  .site-header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 64px;
+    background: #14141a;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 24px;
+    z-index: 100;
+  }
+
+  .site-logo { height: 32px; width: 32px; object-fit: contain; border-radius: 6px; flex-shrink: 0; }
+  .site-title { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
+
+  .theme-toggle {
+    margin-left: auto;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #fff;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .theme-toggle:hover { background: rgba(255,255,255,0.18); }
+
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 40px;
+    width: 100%;
+    max-width: 560px;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+    margin: auto;
+  }
+
+  .brand {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 28px;
+    text-transform: uppercase;
+  }
+
+  h1 { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+  h2 { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
+
+  .subtitle {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 32px;
+  }
+
+  .step-label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+
+  .progress-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-bottom: 32px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--text);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: var(--text-soft);
+  }
+
+  input[type="text"], input[type="number"], textarea {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 15px;
+    font-family: var(--font);
+    background: var(--card-bg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+    resize: none;
+  }
+
+  input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+    border-color: var(--text);
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 12px 28px;
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    font-family: var(--font);
+  }
+
+  .btn:hover { opacity: 0.85; }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    margin-right: 10px;
+  }
+
+  .btn-outline:hover { background: var(--surface); opacity: 1; }
+
+  .tf-options {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+  }
+
+  .tf-btn {
+    flex: 1;
+    padding: 14px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: var(--card-bg);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font);
+    color: var(--text);
+  }
+
+  .tf-btn:hover { border-color: #bbb; }
+
+  .tf-btn.selected {
+    border-color: var(--btn-bg);
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+  }
+
+  .tf-btn.correct { border-color: var(--correct); background: var(--correct); color: #fff; }
+  .tf-btn.wrong { border-color: var(--wrong); background: var(--wrong); color: #fff; }
+
+  .answer-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--card-bg);
+    font-size: 15px;
+  }
+
+  .answer-option:hover { border-color: #bbb; }
+  .answer-option.selected { border-color: var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); }
+  .answer-option.correct { border-color: var(--correct); background: var(--correct); color: #fff; }
+  .answer-option.wrong { border-color: var(--wrong); background: var(--wrong); color: #fff; }
+  .answer-option.partial { border-color: #e09030; background: #e09030; color: #fff; }
+
+  .option-label {
+    font-weight: 700;
+    font-size: 13px;
+    min-width: 20px;
+  }
+
+  /* ── CC: choice count picker ── */
+  .cc-count-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .cc-count-row label { margin: 0; white-space: nowrap; }
+  .cc-count-row input[type="number"] { width: 70px; text-align: center; }
+
+  /* ── CC: answer builder (multi-select checkboxes in maker) ── */
+  .cc-choice-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    background: var(--card-bg);
+    transition: border-color 0.15s;
+  }
+  .cc-choice-row.marked {
+    border-color: var(--correct);
+    background: color-mix(in srgb, var(--correct) 10%, var(--card-bg));
+  }
+  .cc-check {
+    width: 20px; height: 20px;
+    accent-color: var(--correct);
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .cc-choice-label {
+    font-weight: 700;
+    font-size: 13px;
+    min-width: 20px;
+    color: var(--muted);
+  }
+  .cc-choice-text {
+    flex: 1;
+    font-size: 15px;
+    color: var(--text);
+  }
+  /* taker: multi-select CC options */
+  .answer-option.cc-multi { cursor: pointer; }
+  .cc-submit-row { margin-top: 16px; }
+
+  .name-input-wrap { margin-bottom: 24px; }
+
+  .result-name {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .result-score {
+    font-size: 64px;
+    font-weight: 800;
+    line-height: 1;
+    margin: 20px 0 8px;
+  }
+
+  .result-label { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
+
+  .result-breakdown {
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+    margin-top: 8px;
+  }
+
+  .breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .correct-tag { color: var(--correct); font-weight: 600; }
+  .wrong-tag { color: var(--wrong); font-weight: 600; }
+
+  .locked {
+    text-align: center;
+    padding: 40px 0;
+  }
+
+  .locked-icon { font-size: 48px; margin-bottom: 16px; }
+
+  .home-btns {
+    display: flex;
+    gap: 12px;
+    margin-top: 28px;
+  }
+
+  .skip-row { margin-top: 18px; text-align: center; }
+  .skip-btn { padding: 8px 18px; font-size: 13px; color: var(--muted); margin-right: 0; }
+
+  .home-btns .btn { flex: 1; padding: 12px 16px; white-space: nowrap; }
+  .home-btns .btn-outline { margin-right: 0; }
+  .correct-tag, .wrong-tag { white-space: nowrap; margin-left: 12px; }
+
+  .screenshot-hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 16px;
+    text-align: center;
+  }
+
+  .q-counter {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  .btn:disabled { opacity: 0.6; cursor: default; }
+
+  .msg {
+    font-size: 13px;
+    color: var(--wrong);
+    margin-top: 14px;
+    min-height: 1em;
+    line-height: 1.4;
+  }
+  .msg.ok { color: var(--correct); }
+
+  .info-box {
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 13px;
+    color: var(--text-softer);
+    margin-bottom: 24px;
+    line-height: 1.6;
+  }
+
+  .preset-title { font-weight: 700; font-size: 15px; }
+  .preset-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .answer-option.selected .preset-desc { color: inherit; opacity: 0.75; }
+  .answer-option.selected .preset-title { color: inherit; }
+
+  .plan-list { margin-bottom: 8px; }
+  .plan-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .plan-num { font-weight: 600; }
+  .plan-right { display: flex; align-items: center; gap: 8px; }
+  .type-toggle { display: flex; gap: 6px; }
+  .type-toggle button {
+    padding: 6px 10px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: var(--card-bg);
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .type-toggle button:hover { border-color: #bbb; }
+  .type-toggle button.selected { border-color: var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); }
+  .plan-remove {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 4px 6px;
+    font-family: var(--font);
+  }
+  .plan-remove:hover { color: var(--wrong); }
+  .plan-add { margin: 14px 0 0; }
+  .plan-count { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+  /* ── timer ── */
+  input[type="number"] { text-align: center; -moz-appearance: textfield; appearance: textfield; }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .time-box { margin-bottom: 24px; }
+  .time-row { display: flex; gap: 10px; }
+  .time-field { flex: 1; }
+  .time-field label { text-align: center; margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+  .time-hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+  .opt-box { margin-bottom: 24px; }
+  .check-row { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; font-weight: 500; color: var(--text); }
+  .check-row input { width: 20px; height: 20px; margin: 0; accent-color: var(--text); cursor: pointer; flex-shrink: 0; }
+  .q-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .q-row .q-counter { margin-bottom: 0; }
+  .timer-pill {
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    white-space: nowrap;
+  }
+  .timer-pill.low { color: var(--wrong); border-color: var(--wrong); }
+  .time-note { font-size: 13px; color: var(--wrong); margin: 4px 0 16px; line-height: 1.5; }
+
+  /* ── pull-to-refresh ── */
+  #ptr {
+    position: fixed;
+    top: 64px;
+    left: 50%;
+    width: 40px;
+    height: 40px;
+    margin-left: -20px;
+    border-radius: 50%;
+    background: var(--card-bg);
+    border: 2px solid var(--border);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+    color: var(--text);
+    font-size: 20px;
+    line-height: 36px;
+    text-align: center;
+    z-index: 90;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-60px);
+  }
+  #ptr.spin { animation: ptrspin 0.8s linear infinite; }
+  @keyframes ptrspin {
+    from { transform: translateY(16px) rotate(0deg); }
+    to   { transform: translateY(16px) rotate(360deg); }
+  }
+
+  #home { display: block; }
+  #maker { display: none; }
+  #taker { display: none; }
+  #live { display: none; }
+
+  /* ── live results ── */
+  #live { max-width: 1100px; }
+  .live-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 24px;
+  }
+  @media (max-width: 900px) { .live-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .live-grid { grid-template-columns: 1fr; } }
+  .live-empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
+  .mini-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    background: var(--bg);
+  }
+  .mini-name { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+  .mini-time { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+  .mini-score { font-size: 30px; font-weight: 800; line-height: 1; margin-bottom: 2px; }
+  .mini-grade { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .mini-breakdown {
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    padding-right: 4px;
+    margin-top: 4px;
+    max-height: 170px;
+    overflow-y: auto;
+  }
+  .mini-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 3px 0; }
+  .mini-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── live: who's in the test ── */
+  #liveRoom { max-width: 720px; }
+  .room-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; background: var(--bg); margin-top: 10px;
+  }
+  .room-main { min-width: 0; flex: 1; }
+  .room-name { font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; }
+  .room-timer { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .room-timer.ok { color: var(--correct); }
+  .room-timer.warn { color: var(--wrong); }
+  .room-btn { margin: 0; padding: 8px 14px; font-size: 13px; white-space: nowrap; }
+
+  /* ── written questions ── */
+  @media (max-width: 420px) { .type-toggle { gap: 4px; } .type-toggle button { padding: 6px 7px; } }
+  .pending-tag { color: var(--muted); font-weight: 600; white-space: nowrap; margin-left: 12px; }
+  .mini-card.needs-mark { border-color: var(--btn-bg); border-width: 2px; }
+  .mini-pending { font-size: 12px; font-weight: 700; margin: -4px 0 10px; }
+  .wr-box { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; margin-bottom: 8px; }
+  .wr-title { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+  .wr-item { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: var(--card-bg); }
+  .live-grid > .mini-card { min-width: 0; }
+  .wr-q { font-size: 12px; color: var(--muted); margin-bottom: 4px; overflow-wrap: anywhere; }
+  .wr-a { font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 170px; overflow-y: auto; margin-bottom: 10px; }
+  .wr-a.none { color: var(--muted); font-style: italic; margin-bottom: 0; }
+  .wr-btns { display: flex; gap: 8px; }
+  .wr-btn {
+    flex: 1; padding: 8px 6px; border: 2px solid var(--border); border-radius: 8px;
+    background: var(--card-bg); color: var(--text); font-family: var(--font);
+    font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .wr-btn:hover { border-color: #bbb; }
+  .wr-btn.ok.on { background: var(--correct); border-color: var(--correct); color: #fff; }
+  .wr-btn.no.on { background: var(--wrong); border-color: var(--wrong); color: #fff; }
+  .wr-state { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .wr-state.ok { color: var(--correct); }
+  .wr-state.no { color: var(--wrong); }
+  .wr-note { font-size: 13px; color: var(--muted); margin: 4px 0 16px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<script type="application/json" id="quiz-data">null</script>
+<script src="quiz-crypto.js?v=2"></script>
+<script id="app-js">
+const PAGE_TITLE = 'Quiz Builder — Youssef Hisham';
+
+const BODY_HTML = `
+<!-- SITE HEADER -->
+<header class="site-header">
+  <img class="site-logo" src="QLogo.png" alt="Quiz Builder logo">
+  <span class="site-title">Quiz Builder</span>
+  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
+</header>
+
+<div class="scroll-area" id="scrollArea">
+
+<!-- HOME -->
+<div class="card" id="home">
+  <div class="brand">© Youssef Hisham 2026</div>
+  <h1>Quiz Builder</h1>
+  <p class="subtitle">Create a quiz or take one your teacher shared.</p>
+  <div style="display:flex; gap:12px; margin-top:32px;">
+    <button class="btn" onclick="startMaker()">Build a Quiz</button>
+    <button class="btn btn-outline" onclick="startTaker()">Take a Quiz</button>
+  </div>
+  <div class="msg" id="homeMsg"></div>
+</div>
+
+<!-- QUIZ MAKER -->
+<div class="card" id="maker">
+  <div class="brand">Quiz Builder — Maker Mode</div>
+  <div class="progress-bar"><div class="progress-fill" id="makerProgress"></div></div>
+  <div id="makerContent"></div>
+</div>
+
+<!-- QUIZ TAKER -->
+<div class="card" id="taker">
+  <div class="brand">© Youssef Hisham 2026</div>
+  <div id="takerContent"></div>
+</div>
+
+<!-- LIVE RESULTS -->
+<div class="card" id="live">
+  <div class="brand">© Youssef Hisham 2026</div>
+  <div id="liveMain">
+    <h1>Live Results</h1>
+    <p class="subtitle" id="liveStatus">Waiting for students to finish…</p>
+    <div style="margin:4px 0 16px;"><button class="btn btn-outline" onclick="openRoom()">👥 Who's in the test →</button></div>
+    <div class="info-box" id="liveFlags" style="display:none;"></div>
+    <div class="msg" id="liveMsg"></div>
+    <div class="live-grid" id="liveGrid"></div>
+  </div>
+  <div id="liveRoom" style="display:none;">
+    <button class="btn btn-outline" onclick="closeRoom()">← Back to results</button>
+    <h1 style="margin-top:18px;">Who's in the test</h1>
+    <p class="subtitle" id="roomStatus">Loading…</p>
+    <div id="roomList"></div>
+    <div class="msg" id="roomMsg"></div>
+  </div>
+</div>
+
+</div>
+
+`;
+document.body.insertAdjacentHTML('afterbegin', BODY_HTML);
+initTheme();
+
+// ── DARK MODE ──────────────────────────────────────────
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('qb-theme', theme); } catch (e) {}
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem('qb-theme'); } catch (e) {}
+  if (saved !== 'dark' && saved !== 'light') {
+    saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  applyTheme(saved);
+}
+
+// ── STATE ──────────────────────────────────────────────
+let quizData = null;
+let currentQ = {};
+let questions = [];
+const MAX_QUESTIONS = 50;
+const MAX_TIME = 24 * 3600;
+let plan = [];
+let makerStage = 'setup';
+let presetChoice = null;
+const CUSTOM_MIN_ROWS = 10;
+let customPlan = [];
+
+const PRESETS = [
+  { id: 'mix',    title: 'Mixed',               desc: '5 multiple choice + 5 true / false' },
+  { id: 'mc',     title: 'All multiple choice',  desc: '10 questions with 4 options each' },
+  { id: 'tf',     title: 'All true / false',     desc: '10 statements to mark true or false' },
+  { id: 'custom', title: 'Custom',               desc: 'Choose the type of each question yourself' }
+];
+
+function presetPlan(id) {
+  if (id === 'mix') return ['mc','mc','mc','mc','mc','tf','tf','tf','tf','tf'];
+  if (id === 'mc')  return Array(10).fill('mc');
+  return Array(10).fill('tf');
+}
+
+// Sub-steps:
+//   MC:  0=question text, 1=A, 2=B, 3=C, 4=D, 5=answer
+//   TF:  0=question text, 1=answer
+//   CC:  0=question text, 1=choice count, 2..N+1=choices, N+2=mark correct answers
+let subStep = 0;
+let qIndex = 0;
+let tfAnswer = null;
+let mcAnswer = null;
+let editMode = false;
+let editIndex = -1;
+
+// CC-specific maker state
+let ccCount = 4;          // number of choices being built (4–10)
+let ccChoices = [];       // text of each choice
+let ccCorrect = new Set();// indices that are correct
+
+// CC-specific taker state: which options the student has ticked (Set of display-letter indices 0-based)
+let ccSelected = new Set();
+
+// Taker state
+let takerName = '';
+let takerAnswers = [];
+let queue = [];
+let answerMap = [];
+let lastSkipAt = 0;
+let takerStarted = false;
+let quizLocked = false;
+let takerBusy = false;
+let previewMode = false;
+let teacherMode = false;
+let resultSubmitted = false;
+let quizId = '';
+let livePollId = null;
+let liveQuizId = '';
+let restored = false;
+let quizTime = 0;
+let fullOrder = [];
+let perms = [];
+let timerStart = 0;
+let timerId = null;
+let timeIsUp = false;
+let timeLimit = { h: 0, m: 0, s: 0 };
+let hideFlash = true;
+let quizHideFlash = true;
+let shuffleOn = true;
+let quizShuffle = true;
+let attemptToken = '';
+let claimedOnServer = false;
+let pendingPick = '';
+let classText = '';
+let classNames = [];
+let liveTkMem = '';
+let roomOpen = false;
+let roomTickId = null;
+let roomOffset = 0;
+let roomData = null;
+const WR_MAX = 1000;          // longest written answer (characters)
+let wrDrafts = {};            // unsent written answers, by question index
+let mySid = '';               // id of this student's submitted result (used to fetch teacher marks)
+let gradePollId = null;
+let reportingNow = false;
+let liveList = [];            // teacher: the result cards currently shown
+let liveFlagsMem = [];
+let gradeQueue = Promise.resolve();
+let gradeBusy = 0;
+let lastGradeDoneAt = 0;
+let liveViewOnly = false;
+
+// ── HELPERS ────────────────────────────────────────────
+function show(id) {
+  ['home','maker','taker','live'].forEach(x => document.getElementById(x).style.display = 'none');
+  document.getElementById(id).style.display = 'block';
+}
+
+function setProgress(pct) {
+  document.getElementById('makerProgress').style.width = pct + '%';
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function showMsg(text, id, ok) {
+  const el = document.getElementById(id || 'msg');
+  if (!el) return;
+  el.className = 'msg' + (ok ? ' ok' : '');
+  el.textContent = text;
+}
+
+function gradeFor(pct) {
+  return pct >= 90 ? 'Excellent' : pct >= 75 ? 'Very Good' : pct >= 60 ? 'Good' : pct >= 50 ? 'Pass' : 'Needs Review';
+}
+
+// ── QUIZ DATA: validate + link encoding ────────────────
+function validateQuiz(q) {
+  if (!q || !Array.isArray(q.questions) || q.questions.length < 1 || q.questions.length > 50) return null;
+  const out = [];
+  for (const it of q.questions) {
+    if (!it || typeof it.text !== 'string') return null;
+    if (it.type === 'mc') {
+      if (!Array.isArray(it.choices) || it.choices.length !== 4 || !['A','B','C','D'].includes(it.answer)) return null;
+      out.push({ type: 'mc', text: it.text.slice(0, 500), choices: it.choices.map(c => String(c).slice(0, 300)), answer: it.answer });
+    } else if (it.type === 'tf') {
+      if (it.answer !== 'True' && it.answer !== 'False') return null;
+      out.push({ type: 'tf', text: it.text.slice(0, 500), answer: it.answer });
+    } else if (it.type === 'cc') {
+      // Custom Choice: choices array (4–10), answers array of indices (1+)
+      if (!Array.isArray(it.choices) || it.choices.length < 4 || it.choices.length > 10) return null;
+      if (!Array.isArray(it.answers) || it.answers.length < 1) return null;
+      if (!it.answers.every(a => Number.isInteger(a) && a >= 0 && a < it.choices.length)) return null;
+      out.push({
+        type: 'cc',
+        text: it.text.slice(0, 500),
+        choices: it.choices.map(c => String(c).slice(0, 300)),
+        answers: it.answers.slice()
+      });
+    } else if (it.type === 'wr') {
+      // Written: the student types an answer, the teacher marks it
+      out.push({ type: 'wr', text: it.text.slice(0, 500) });
+    } else {
+      return null;
+    }
+  }
+  const id = (typeof q.id === 'string' && /^[a-z0-9]{4,20}$/i.test(q.id)) ? q.id : '';
+  let t = Number(q.t);
+  t = (Number.isFinite(t) && t > 0) ? Math.min(Math.floor(t), MAX_TIME) : 0;
+  return { v: 1, id: id, t: t, hf: !!q.hf, sh: q.sh !== false, questions: out };
+}
+
+function shuffled(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+function isPerm(a, n) {
+  return Array.isArray(a) && a.length === n && a.every(x => Number.isInteger(x) && x >= 0 && x < n) && new Set(a).size === n;
+}
+
+function hashStr(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+
+function newQuizId() {
+  try {
+    return Array.from(crypto.getRandomValues(new Uint8Array(8)), b => (b % 36).toString(36)).join('');
+  } catch (e) {
+    return Math.random().toString(36).slice(2, 10);
+  }
+}
+
+// ── ONE ATTEMPT PER DEVICE ─────────────────────────────
+function progressKey() { return quizId ? 'qb1:' + quizId : ''; }
+
+function saveProgress() {
+  if (previewMode || !progressKey()) return;
+  try {
+    localStorage.setItem(progressKey(), JSON.stringify({
+      n: takerName,
+      g: answerMap.map(a => a ? a.given : null),
+      o: queue.slice(),
+      s: timerStart,
+      f: fullOrder,
+      p: perms,
+      r: resultSubmitted,
+      k: claimedOnServer ? 1 : 0,
+      i: mySid
+    }));
+  } catch (e) {}
+}
+
+function loadProgress() {
+  if (!progressKey()) return null;
+  try {
+    const p = JSON.parse(localStorage.getItem(progressKey()) || 'null');
+    if (p && typeof p.n === 'string' && p.n && Array.isArray(p.g) && p.g.length <= quizData.length &&
+        p.g.every(x => x === null || typeof x === 'string')) return p;
+  } catch (e) {}
+  return null;
+}
+
+function encodeQuiz(q) {
+  const bytes = new TextEncoder().encode(JSON.stringify(q));
   let s = '';
   bytes.forEach(b => s += String.fromCharCode(b));
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-function b64ToBytes(s) {
+
+function decodeQuiz(s) {
   s = s.replace(/-/g, '+').replace(/_/g, '/');
   while (s.length % 4) s += '=';
-  return Uint8Array.from(atob(s), c => c.charCodeAt(0));
-}
-async function pipeBytes(bytes, stream) {
-  const w = stream.writable.getWriter();
-  w.write(bytes).catch(() => {});
-  w.close().catch(() => {});
-  return new Uint8Array(await new Response(stream.readable).arrayBuffer());
-}
-function linkKey() {
-  return crypto.subtle.importKey('raw', hexToBytes(KEY_HEX), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  const bin = atob(s);
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-function packQuestion(it) {
-  if (it.type === 'mc') return [it.text, ...it.choices, it.answer];
-  if (it.type === 'tf') return [it.text, it.answer === 'True' ? 'T' : 'F'];
-  if (it.type === 'cc') return { k: 'c', x: it.text, c: it.choices, a: it.answers };
-  if (it.type === 'wr') return { k: 'w', x: it.text };
-  throw new Error('unknown question type: ' + it.type);
-}
+// ── SHORT + ENCRYPTED LINKS ────────────────────────────
+const SHORT_API = 'https://purple-art-a864.recachiastudios.workers.dev';
 
-function unpackQuestion(a) {
-  if (Array.isArray(a)) {
-    return a.length === 6
-      ? { type: 'mc', text: a[0], choices: a.slice(1, 5), answer: a[5] }
-      : { type: 'tf', text: a[0], answer: a[1] === 'T' ? 'True' : 'False' };
+const PAGE_VERSION = 'v9';
+let linkWhy = [];
+
+async function serverSave(data) {
+  if (!SHORT_API) { linkWhy.push('server address missing'); return null; }
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(SHORT_API + '/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: data }),
+      signal: ctl.signal
+    });
+    clearTimeout(timer);
+    const d = await r.json();
+    if (d && typeof d.code === 'string' && /^[a-z0-9]{4,12}$/.test(d.code)) return d.code;
+    linkWhy.push('server said ' + r.status + ' ' + ((d && d.error) || 'no code'));
+    return null;
+  } catch (e) {
+    linkWhy.push('server: ' + (e && e.name === 'AbortError' ? 'timed out' : (e && e.message) || 'failed'));
+    return null;
   }
-  if (a && a.k === 'c') return { type: 'cc', text: a.x, choices: a.c, answers: a.a };
-  if (a && a.k === 'w') return { type: 'wr', text: a.x };
-  throw new Error('unknown question format');
 }
 
-async function encodeSecure(q) {
-  const compact = {
-    i: q.id,
-    q: q.questions.map(packQuestion)
+function cryptoWhy() {
+  if (!window.QuizCrypto) return 'quiz-crypto.js did not load';
+  if (!(window.crypto && crypto.subtle)) return 'browser has no encryption here (needs https)';
+  return 'browser too old for compression';
+}
+
+function cryptoReady() {
+  return !!(window.QuizCrypto && window.crypto && crypto.subtle && typeof CompressionStream !== 'undefined');
+}
+
+async function loadSharedQuiz() {
+  const h = location.hash;
+  if (/^#(q|quiz|s)=/.test(h)) {
+    try {
+      const ms = h.match(/^#s=([a-z0-9]{4,12})$/);
+      if (ms) {
+        if (!cryptoReady() || !SHORT_API) {
+          showMsg('This page can\'t open the quiz. The file quiz-crypto.js must be in the same folder as index.html.', 'homeMsg');
+          return null;
+        }
+        showMsg('Loading quiz…', 'homeMsg', true);
+        const r = await fetch(SHORT_API + '/get?c=' + ms[1]);
+        if (!r.ok) throw new Error('not found');
+        const d = await r.json();
+        const q = validateQuiz(await window.QuizCrypto.decode(d.data));
+        if (q) { showMsg('', 'homeMsg'); return { quiz: q, source: 'link' }; }
+      }
+      const m = h.match(/^#q=([A-Za-z0-9_-]+)$/);
+      if (m) {
+        if (!cryptoReady()) {
+          showMsg('This page can\'t open the quiz. The file quiz-crypto.js must be in the same folder as index.html.', 'homeMsg');
+          return null;
+        }
+        const q = validateQuiz(await window.QuizCrypto.decode(m[1]));
+        if (q) return { quiz: q, source: 'link' };
+      }
+      const m2 = h.match(/^#quiz=([A-Za-z0-9_-]+)$/);
+      if (m2) {
+        const q = validateQuiz(decodeQuiz(m2[1]));
+        if (q) return { quiz: q, source: 'link' };
+      }
+    } catch (e) {}
+    showMsg('This quiz link is incomplete, damaged or couldn\'t be loaded. Check your internet connection or ask your teacher to send it again.', 'homeMsg');
+    return null;
+  }
+  try {
+    const el = document.getElementById('quiz-data');
+    const txt = el ? el.textContent.trim() : '';
+    if (txt && txt !== 'null') {
+      const q = validateQuiz(JSON.parse(txt));
+      if (q) return { quiz: q, source: 'page' };
+    }
+  } catch (e) {}
+  return null;
+}
+
+function buildPageHtml(quiz) {
+  const css = document.getElementById('app-css').textContent;
+  const code = document.getElementById('app-js').textContent;
+  const data = JSON.stringify(quiz).replace(/</g, '\\u003c');
+  return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+    '<title>' + PAGE_TITLE + '</title>\n' +
+    '<style id="app-css">' + css + '</style>\n</head>\n<body>\n' +
+    '<scr' + 'ipt type="application/json" id="quiz-data">' + data + '<' + '/script>\n' +
+    '<scr' + 'ipt id="app-js">' + code + '<' + '/script>\n</body>\n</html>';
+}
+
+// ── MAKER ──────────────────────────────────────────────
+function startMaker() {
+  questions = [];
+  qIndex = 0;
+  subStep = 0;
+  currentQ = {};
+  plan = [];
+  presetChoice = null;
+  makerStage = 'setup';
+  timeLimit = { h: 0, m: 0, s: 0 };
+  hideFlash = true;
+  shuffleOn = true;
+  classText = '';
+  classNames = [];
+  ccCount = 4;
+  ccChoices = [];
+  ccCorrect = new Set();
+  show('maker');
+  renderMakerStep();
+}
+
+// ── MAKER: choose a format ─────────────────────────────
+function renderSetup() {
+  setProgress(0);
+  document.getElementById('makerContent').innerHTML = `
+    <h2>Choose a quiz format</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Pick a ready-made format or build your own.</p>
+    ${PRESETS.map(p => `
+      <div class="answer-option ${presetChoice===p.id?'selected':''}" onclick="selectPreset('${p.id}')">
+        <div>
+          <div class="preset-title">${p.title}</div>
+          <div class="preset-desc">${p.desc}</div>
+        </div>
+      </div>`).join('')}
+    <div style="margin-top:24px;">
+      <button class="btn btn-outline" onclick="show('home')">Back</button>
+      <button class="btn" onclick="setupNext()">Next →</button>
+    </div>
+    <div class="msg" id="msg"></div>`;
+}
+
+function selectPreset(id) {
+  presetChoice = id;
+  renderMakerStep();
+}
+
+function setupNext() {
+  if (!presetChoice) { showMsg('Please choose a format.'); return; }
+  if (presetChoice === 'custom') {
+    if (!customPlan.length) customPlan = Array(10).fill('mc');
+    makerStage = 'custom';
+    renderMakerStep();
+    return;
+  }
+  beginQuestions(presetPlan(presetChoice));
+}
+
+function beginQuestions(p) {
+  plan = p.slice();
+  questions = [];
+  qIndex = 0;
+  subStep = 0;
+  currentQ = {};
+  makerStage = 'questions';
+  renderMakerStep();
+}
+
+// ── MAKER: custom list ─────────────────────────────────
+function renderCustom() {
+  setProgress(0);
+  const rows = customPlan.map((t, i) => `
+    <div class="plan-row">
+      <span class="plan-num">Q${i+1}</span>
+      <div class="plan-right">
+        <div class="type-toggle">
+          <button class="${t==='mc'?'selected':''}" onclick="setCustomType(${i},'mc')">Choice</button>
+          <button class="${t==='tf'?'selected':''}" onclick="setCustomType(${i},'tf')">T / F</button>
+          <button class="${t==='cc'?'selected':''}" onclick="setCustomType(${i},'cc')">Custom</button>
+          <button class="${t==='wr'?'selected':''}" onclick="setCustomType(${i},'wr')">Written</button>
+        </div>
+        <button class="plan-remove" aria-label="Remove question ${i+1}" onclick="removeCustom(${i})">✕</button>
+      </div>
+    </div>`).join('');
+  const mc = customPlan.filter(t => t === 'mc').length;
+  const tf = customPlan.filter(t => t === 'tf').length;
+  const cc = customPlan.filter(t => t === 'cc').length;
+  const wr = customPlan.filter(t => t === 'wr').length;
+  let countParts = [];
+  if (mc) countParts.push(mc + ' multiple choice');
+  if (tf) countParts.push(tf + ' true / false');
+  if (cc) countParts.push(cc + ' custom choice');
+  if (wr) countParts.push(wr + ' written');
+  document.getElementById('makerContent').innerHTML = `
+    <h2>Custom quiz</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Choose the type of each question.<br><strong>Custom Choice</strong> lets you set 4–10 options and mark one or more as correct.<br><strong>Written</strong> lets students type an answer that you mark yourself in Live Results.</p>
+    <div id="planWrap" style="display:flow-root;">
+      <div class="plan-list">${rows}</div>
+      <button class="btn btn-outline plan-add" onclick="addCustom()" ${customPlan.length>=MAX_QUESTIONS?'disabled':''}>+ Add question</button>
+      <div class="plan-count">${countParts.join(' · ')}</div>
+    </div>
+    <div style="margin-top:24px;">
+      <button class="btn btn-outline" onclick="customBack()">Back</button>
+      <button class="btn" onclick="customNext()">Next →</button>
+    </div>
+    <div class="msg" id="msg"></div>`;
+  const wrap = document.getElementById('planWrap');
+  const list = wrap && wrap.querySelector('.plan-list');
+  if (wrap && list && customPlan.length) {
+    const perRow = list.offsetHeight / customPlan.length;
+    const atDefault = wrap.offsetHeight - list.offsetHeight + perRow * CUSTOM_MIN_ROWS;
+    wrap.style.minHeight = Math.ceil(atDefault) + 'px';
+  }
+}
+
+function setCustomType(i, t) { customPlan[i] = t; renderCustom(); }
+
+function addCustom() {
+  if (customPlan.length >= MAX_QUESTIONS) return;
+  customPlan.push('mc');
+  renderCustom();
+}
+
+function removeCustom(i) {
+  if (customPlan.length <= 1) { showMsg('A quiz needs at least one question.'); return; }
+  customPlan.splice(i, 1);
+  renderCustom();
+}
+
+function customBack() { makerStage = 'setup'; renderMakerStep(); }
+function customNext() { beginQuestions(customPlan); }
+
+function renderEditList() {
+  setProgress(100);
+  const rows = questions.map((q, i) => {
+    const typeTag = q.type === 'mc' ? 'MC' : q.type === 'tf' ? 'T/F' : q.type === 'wr' ? 'WR' : 'CC';
+    const preview = q.text.length > 50 ? q.text.slice(0, 50) + '…' : q.text;
+    return `
+      <div class="plan-row" style="cursor:pointer;" onclick="startEditQuestion(${i})">
+        <span class="plan-num">Q${i+1} <span style="color:var(--muted);font-size:11px;font-weight:400;">${typeTag}</span></span>
+        <span dir="auto" style="flex:1;font-size:13px;color:var(--text-softer);padding:0 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(preview)}</span>
+        <span style="font-size:13px;color:var(--muted);">Edit →</span>
+      </div>`;
+  }).join('');
+  document.getElementById('makerContent').innerHTML = `
+    <h2>Edit Questions</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Tap a question to edit it.</p>
+    <div class="plan-list">${rows}</div>
+    <div style="margin-top:24px;">
+      <button class="btn btn-outline" onclick="makerStage='questions';qIndex=plan.length;editMode=false;editIndex=-1;renderMakerStep();">← Back to Generate</button>
+    </div>`;
+}
+
+// ── CC helper: letters for up to 10 choices ────────────
+const CC_LETTERS = ['A','B','C','D','E','F','G','H','I','J'];
+
+function renderMakerStep() {
+  if (makerStage === 'setup')    { renderSetup();    return; }
+  if (makerStage === 'custom')   { renderCustom();   return; }
+  if (makerStage === 'editlist') { renderEditList(); return; }
+  if (makerStage === 'classlist') { renderClassList(); return; }
+
+  const qType = qIndex < plan.length ? plan[qIndex] : null;
+  const isMC = qType === 'mc';
+  const isTF = qType === 'tf';
+  const isCC = qType === 'cc';
+  const isWR = qType === 'wr';
+  const qNum = qIndex + 1;
+  const progress = Math.round((qIndex / plan.length) * 100);
+  setProgress(progress);
+
+  let html = '';
+
+  // ── MC ──
+  if (isMC) {
+    if (subStep === 0) {
+      const prefill = editMode ? esc(currentQ.text || '') : (currentQ.text ? esc(currentQ.text) : '');
+      html = `
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Multiple Choice'} — Question ${qNum} of ${plan.length}</div>
+        <h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>
+        <label>Type the question</label>
+        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. What is the capital of Egypt?">${prefill}</textarea>
+        <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="mcNext()">Next →</button>
+        </div>`;
+    } else if (subStep >= 1 && subStep <= 4) {
+      const letter = ['A','B','C','D'][subStep-1];
+      const prefillChoice = (currentQ.choices && currentQ.choices[subStep-1]) ? esc(currentQ.choices[subStep-1]) : '';
+      html = `
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Multiple Choice'} — Question ${qNum} of ${plan.length}</div>
+        <h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
+        <label>Option ${letter}</label>
+        <input type="text" dir="auto" id="inp" placeholder="Type option ${letter}…" value="${prefillChoice}">
+        <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="mcNext()">Next →</button>
+        </div>`;
+    } else if (subStep === 5) {
+      html = `
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Multiple Choice'} — Question ${qNum} of ${plan.length}</div>
+        <h2>Correct Answer?</h2>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
+        ${['A','B','C','D'].map((l,i) => `
+          <div class="answer-option ${mcAnswer===l?'selected':''}" onclick="selectMCAnswer('${l}')">
+            <span class="option-label">${l}</span>
+            <span dir="auto">${esc(currentQ.choices[i])}</span>
+          </div>`).join('')}
+        <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="mcFinish()">${editMode ? 'Complete ✓' : 'Save Question →'}</button>
+        </div>
+        <div class="msg" id="msg"></div>`;
+    }
+  }
+
+  // ── TF ──
+  else if (isTF) {
+    if (subStep === 0) {
+      const prefillTF = editMode ? esc(currentQ.text || '') : (currentQ.text ? esc(currentQ.text) : '');
+      html = `
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'True / False'} — Question ${qNum} of ${plan.length}</div>
+        <h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>
+        <label>Type the statement</label>
+        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. The internet is a type of Recording Media.">${prefillTF}</textarea>
+        <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="tfNext()">Next →</button>
+        </div>`;
+    } else if (subStep === 1) {
+      html = `
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'True / False'} — Question ${qNum} of ${plan.length}</div>
+        <h2>Correct Answer?</h2>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
+        <div class="tf-options">
+          <button class="tf-btn ${tfAnswer==='True'?'selected':''}" onclick="selectTF('True')">True</button>
+          <button class="tf-btn ${tfAnswer==='False'?'selected':''}" onclick="selectTF('False')">False</button>
+        </div>
+        <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="tfFinish()">${editMode ? 'Complete ✓' : 'Save Question →'}</button>
+        </div>
+        <div class="msg" id="msg"></div>`;
+    }
+  }
+
+  // ── CC (Custom Choice) ──
+  else if (isCC) {
+    // subStep 0: question text
+    if (subStep === 0) {
+      const prefill = editMode ? esc(currentQ.text || '') : (currentQ.text ? esc(currentQ.text) : '');
+      html = `
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Custom Choice'} — Question ${qNum} of ${plan.length}</div>
+        <h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>
+        <label>Type the question</label>
+        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. Which of the following are mammals?">${prefill}</textarea>
+        <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="ccNextFromText()">Next →</button>
+        </div>`;
+    }
+    // subStep 1: choose number of choices
+    else if (subStep === 1) {
+      const cur = ccCount || (currentQ.choices ? currentQ.choices.length : 4);
+      html = `
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Custom Choice'} — Question ${qNum} of ${plan.length}</div>
+        <h2>How many choices?</h2>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
+        <div class="cc-count-row">
+          <label for="ccCountInp">Number of choices (4 – 10):</label>
+          <input type="number" id="ccCountInp" inputmode="numeric" min="4" max="10" value="${cur}" onfocus="this.select()">
+        </div>
+        <div class="info-box">You can mark one <em>or more</em> of these as correct on the next step. Students must pick exactly the right combination.</div>
+        <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="ccNextFromCount()">Next →</button>
+        </div>
+        <div class="msg" id="msg"></div>`;
+    }
+    // subStep 2 … ccCount+1: enter each choice text
+    else if (subStep >= 2 && subStep <= ccCount + 1) {
+      const ci = subStep - 2;    // choice index (0-based)
+      const letter = CC_LETTERS[ci];
+      const prefillChoice = (ccChoices[ci] !== undefined) ? esc(ccChoices[ci]) : '';
+      html = `
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Custom Choice'} — Question ${qNum} of ${plan.length}</div>
+        <h2>Choice ${letter} <span style="font-weight:400;color:var(--muted);font-size:16px;">(${ci+1} of ${ccCount})</span></h2>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
+        <label>Type choice ${letter}</label>
+        <input type="text" dir="auto" id="inp" placeholder="Type option ${letter}…" value="${prefillChoice}">
+        <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="ccNextFromChoice()">Next →</button>
+        </div>`;
+    }
+    // subStep ccCount+2: mark correct answers
+    else if (subStep === ccCount + 2) {
+      const choiceRows = ccChoices.slice(0, ccCount).map((ch, i) => {
+        const checked = ccCorrect.has(i) ? 'checked' : '';
+        const marked = ccCorrect.has(i) ? 'marked' : '';
+        return `
+          <div class="cc-choice-row ${marked}" onclick="ccToggleCorrect(${i})" style="cursor:pointer;">
+            <input type="checkbox" class="cc-check" ${checked} onclick="event.stopPropagation();ccToggleCorrect(${i})">
+            <span class="cc-choice-label">${CC_LETTERS[i]}</span>
+            <span class="cc-choice-text" dir="auto">${esc(ch)}</span>
+          </div>`;
+      }).join('');
+      html = `
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Custom Choice'} — Question ${qNum} of ${plan.length}</div>
+        <h2>Mark Correct Answers</h2>
+        <p dir="auto" style="margin-bottom:16px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Tick every choice that is correct. Students must select exactly these to get the point.</p>
+        ${choiceRows}
+        <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="ccFinish()">${editMode ? 'Complete ✓' : 'Save Question →'}</button>
+        </div>
+        <div class="msg" id="msg"></div>`;
+    }
+  }
+
+  // ── WR (Written) ──
+  else if (isWR) {
+    const prefillWR = currentQ.text ? esc(currentQ.text) : '';
+    html = `
+      <div class="q-counter">${editMode ? '✏️ Editing' : 'Written'} — Question ${qNum} of ${plan.length}</div>
+      <h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>
+      <label>Type the question</label>
+      <textarea id="inp" dir="auto" rows="3" placeholder="e.g. Explain the difference between RAM and ROM.">${prefillWR}</textarea>
+      <div class="info-box" style="margin-top:16px;">Students type their answer in their own words. Written answers are <strong>not</strong> marked automatically — you mark each one as correct or wrong in Live Results, and the scores update for you and the student.</div>
+      <div style="margin-top:24px;">
+        <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+        <button class="btn" onclick="wrFinish()">${editMode ? 'Complete ✓' : 'Save Question →'}</button>
+      </div>
+      <div class="msg" id="msg"></div>`;
+  }
+
+  // ── All done ──
+  else {
+    const mcCount = plan.filter(t => t === 'mc').length;
+    const tfCount = plan.filter(t => t === 'tf').length;
+    const ccCount2 = plan.filter(t => t === 'cc').length;
+    const wrCount = plan.filter(t => t === 'wr').length;
+    let typeSummary = [];
+    if (mcCount) typeSummary.push('<strong>' + mcCount + ' Multiple Choice</strong>');
+    if (tfCount) typeSummary.push('<strong>' + tfCount + ' True / False</strong>');
+    if (ccCount2) typeSummary.push('<strong>' + ccCount2 + ' Custom Choice</strong>');
+    if (wrCount) typeSummary.push('<strong>' + wrCount + ' Written</strong>');
+    html = `
+      <h2>Quiz Ready! 🎉</h2>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">All ${plan.length} questions are in. Save the quiz to get a link for your students.</p>
+      <div class="info-box">
+        ${typeSummary.join(' + ')}<br>
+        Students open your link, enter their name and answer. As soon as each student finishes, their result is sent to you automatically — watch them come in on the Live Results page.${wrCount ? '<br><br>✍️ <strong>Written answers</strong> wait for you: open Live Results and tap ✓ Correct or ✗ Wrong on each one. The percentage updates for you and for the student.' : ''}
+      </div>
+      <div class="time-box">
+        <label>Time limit</label>
+        <div class="time-row">
+          <div class="time-field">
+            <input type="number" id="tHr" inputmode="numeric" min="0" max="24" value="${timeLimit.h}" onfocus="this.select()" oninput="setTime('h', this.value)">
+            <label for="tHr">hr</label>
+          </div>
+          <div class="time-field">
+            <input type="number" id="tMin" inputmode="numeric" min="0" value="${timeLimit.m}" onfocus="this.select()" oninput="setTime('m', this.value)">
+            <label for="tMin">min</label>
+          </div>
+          <div class="time-field">
+            <input type="number" id="tSec" inputmode="numeric" min="0" value="${timeLimit.s}" onfocus="this.select()" oninput="setTime('s', this.value)">
+            <label for="tSec">sec</label>
+          </div>
+        </div>
+        <div class="time-hint" id="timeSummary">${timeSummaryText(timeLimitSeconds())}</div>
+      </div>
+      <div class="opt-box">
+        <div class="check-row">
+          <input type="checkbox" id="hideFlashBox" aria-label="Hide the green / red flash after each answer" ${hideFlash ? 'checked' : ''} onchange="setHideFlash(this.checked)">
+          <span>Hide the green / red flash after each answer</span>
+        </div>
+        <div class="time-hint">When ticked, students don't see right away whether an answer was correct. They see it in their result at the end.</div>
+        <div class="check-row" style="margin-top:18px;">
+          <input type="checkbox" id="shuffleBox" aria-label="Shuffle the questions and the answers for each student" ${shuffleOn ? 'checked' : ''} onchange="setShuffle(this.checked)">
+          <span>Shuffle the questions and the answers for each student</span>
+        </div>
+        <div class="time-hint">When ticked, every student gets the questions in a different random order, and the choices of each question are mixed up. The right answer stays the one you picked.</div>
+      </div>
+      <div class="opt-box">
+        <label>Class list (optional)</label>
+        <div class="time-hint" style="margin-top:0;margin-bottom:12px;">${classNames.length
+          ? '<strong>' + classNames.length + (classNames.length === 1 ? ' name' : ' names') + '</strong> — only these students can start the quiz, and each name works once.'
+          : 'Not used — students can type any name (each name still works only once).'}</div>
+        <button class="btn btn-outline" style="margin:0;" onclick="openClassList()">${classNames.length ? 'Edit class list' : 'Set up class list'}</button>
+      </div>
+      <button class="btn" id="saveBtn" onclick="saveQuiz()" style="width:100%;">Save Quiz &amp; Get Link →</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
+        <button class="btn btn-outline" style="margin:0;" onclick="openEditList()">Edit Questions</button>
+        <button class="btn btn-outline" style="margin:0;" onclick="activateTaker()">Try it as a student</button>
+        <button class="btn btn-outline" style="margin:0;grid-column:1/-1;" onclick="startMaker()">Rebuild Quiz</button>
+      </div>
+      <div class="msg" id="msg"></div>`;
+    setProgress(100);
+  }
+
+  document.getElementById('makerContent').innerHTML = html;
+  const inp = document.getElementById('inp');
+  if (inp) inp.focus();
+}
+
+// ── MAKER: time limit ──────────────────────────────────
+function timeLimitSeconds() { return timeLimit.h * 3600 + timeLimit.m * 60 + timeLimit.s; }
+
+function limitText(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return [h && (h + ' hr'), m && (m + ' min'), s && (s + ' sec')].filter(Boolean).join(' ');
+}
+
+function timeSummaryText(sec) {
+  if (sec > MAX_TIME) return 'The longest time limit is 24 hours.';
+  return sec ? 'Time limit: ' + limitText(sec) + '. The timer starts when a student taps Start Quiz.'
+             : 'No time limit (0 = unlimited). Students can take as long as they need.';
+}
+
+function setTime(part, val) {
+  timeLimit[part] = Math.max(0, parseInt(val, 10) || 0);
+  const el = document.getElementById('timeSummary');
+  if (el) el.textContent = timeSummaryText(timeLimitSeconds());
+}
+
+function setHideFlash(v) { hideFlash = !!v; }
+function setShuffle(v) { shuffleOn = !!v; }
+
+// ── MC maker handlers ──────────────────────────────────
+function mcNext() {
+  const inp = document.getElementById('inp');
+  const val = inp ? inp.value.trim() : '';
+  if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
+  if (subStep === 0) {
+    if (editMode) {
+      currentQ.text = val;
+      if (!currentQ.choices) currentQ.choices = [];
+    } else {
+      currentQ = { type:'mc', text: val, choices: [], answer: '' };
+    }
+  } else {
+    const idx = subStep - 1;
+    if (!currentQ.choices) currentQ.choices = [];
+    currentQ.choices[idx] = val;
+  }
+  subStep++;
+  if (subStep < 5 && !editMode) mcAnswer = null;
+  renderMakerStep();
+}
+
+function selectMCAnswer(l) { mcAnswer = l; renderMakerStep(); }
+
+function mcFinish() {
+  if (!mcAnswer) { showMsg('Please select the correct answer.'); return; }
+  currentQ.answer = mcAnswer;
+  if (editMode) {
+    questions[editIndex] = { ...currentQ };
+    editMode = false; editIndex = -1; currentQ = {}; mcAnswer = null;
+    openEditList(); return;
+  }
+  questions.push({...currentQ});
+  qIndex++; subStep = 0; currentQ = {}; mcAnswer = null;
+  renderMakerStep();
+}
+
+// ── TF maker handlers ──────────────────────────────────
+function tfNext() {
+  const inp = document.getElementById('inp');
+  const val = inp ? inp.value.trim() : '';
+  if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
+  if (editMode) { currentQ.text = val; }
+  else { currentQ = { type:'tf', text: val, answer: '' }; tfAnswer = null; }
+  subStep = 1;
+  renderMakerStep();
+}
+
+function selectTF(v) { tfAnswer = v; renderMakerStep(); }
+
+function tfFinish() {
+  if (!tfAnswer) { showMsg('Please select True or False.'); return; }
+  currentQ.answer = tfAnswer;
+  if (editMode) {
+    questions[editIndex] = { ...currentQ };
+    editMode = false; editIndex = -1; currentQ = {}; tfAnswer = null;
+    openEditList(); return;
+  }
+  questions.push({...currentQ});
+  qIndex++; subStep = 0; currentQ = {}; tfAnswer = null;
+  renderMakerStep();
+}
+
+// ── WR maker handlers ──────────────────────────────────
+function wrFinish() {
+  const inp = document.getElementById('inp');
+  const val = inp ? inp.value.trim() : '';
+  if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
+  const q = { type: 'wr', text: val };
+  if (editMode) {
+    questions[editIndex] = q;
+    editMode = false; editIndex = -1; currentQ = {};
+    openEditList(); return;
+  }
+  questions.push(q);
+  qIndex++; subStep = 0; currentQ = {};
+  renderMakerStep();
+}
+
+// ── CC maker handlers ──────────────────────────────────
+function ccNextFromText() {
+  const inp = document.getElementById('inp');
+  const val = inp ? inp.value.trim() : '';
+  if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
+  if (editMode) {
+    currentQ.text = val;
+    // If editing, keep existing ccCount / ccChoices / ccCorrect loaded in startEditQuestion
+  } else {
+    currentQ = { type:'cc', text: val };
+    ccCount = 4;
+    ccChoices = [];
+    ccCorrect = new Set();
+  }
+  subStep = 1;
+  renderMakerStep();
+}
+
+function ccNextFromCount() {
+  const inp = document.getElementById('ccCountInp');
+  const val = inp ? parseInt(inp.value, 10) : NaN;
+  if (isNaN(val) || val < 4 || val > 10) { showMsg('Please enter a number between 4 and 10.'); return; }
+  const prev = ccCount;
+  ccCount = val;
+  // If count shrunk, trim
+  if (ccChoices.length > ccCount) ccChoices = ccChoices.slice(0, ccCount);
+  // Remove out-of-range correct answers
+  for (const i of [...ccCorrect]) { if (i >= ccCount) ccCorrect.delete(i); }
+  subStep = 2;
+  renderMakerStep();
+}
+
+function ccNextFromChoice() {
+  const inp = document.getElementById('inp');
+  const val = inp ? inp.value.trim() : '';
+  if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
+  const ci = subStep - 2;
+  ccChoices[ci] = val;
+  subStep++;
+  renderMakerStep();
+}
+
+function ccToggleCorrect(i) {
+  if (ccCorrect.has(i)) ccCorrect.delete(i);
+  else ccCorrect.add(i);
+  renderMakerStep();
+}
+
+function ccFinish() {
+  if (ccCorrect.size === 0) { showMsg('Please mark at least one correct answer.'); return; }
+  const q = {
+    type: 'cc',
+    text: currentQ.text,
+    choices: ccChoices.slice(0, ccCount),
+    answers: [...ccCorrect].sort((a,b) => a - b)
   };
-  // Settings are only written when they differ from the default, which keeps the link short:
-  //   t = time limit in seconds (left out = unlimited)
-  //   h = 1 when the green / red flash is hidden (left out = flash shown)
-  //   s = 0 when shuffling is turned off (left out = shuffled)
-  if (Number(q.t) > 0) compact.t = Math.floor(Number(q.t));
-  if (q.hf === true) compact.h = 1;
-  if (q.sh === false) compact.s = 0;
-  const raw = new TextEncoder().encode(JSON.stringify(compact));
-  const packed = await pipeBytes(raw, new CompressionStream('deflate-raw'));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await linkKey(), packed));
-  const out = new Uint8Array(iv.length + ct.length);
-  out.set(iv);
-  out.set(ct, iv.length);
-  return bytesToB64(out);
+  if (editMode) {
+    questions[editIndex] = q;
+    editMode = false; editIndex = -1; currentQ = {};
+    ccChoices = []; ccCorrect = new Set();
+    openEditList(); return;
+  }
+  questions.push(q);
+  qIndex++; subStep = 0; currentQ = {};
+  ccChoices = []; ccCorrect = new Set();
+  renderMakerStep();
 }
 
-async function decodeSecure(s) {
-  const buf = b64ToBytes(s);
-  const iv = buf.slice(0, 12);
-  const packed = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, await linkKey(), buf.slice(12)));
-  const raw = await pipeBytes(packed, new DecompressionStream('deflate-raw'));
-  const c = JSON.parse(new TextDecoder().decode(raw));
-  return {
-    v: 1,
-    id: c.i,
-    t: Number(c.t) > 0 ? Math.floor(Number(c.t)) : 0,
-    hf: c.h === 1,
-    sh: c.s !== 0,
-    questions: c.q.map(unpackQuestion)
+// ── MAKER: BACK navigation ─────────────────────────────
+function makerBack() {
+  const qType = qIndex < plan.length ? plan[qIndex] : null;
+
+  if (editMode) {
+    if (subStep > 0) {
+      // CC: going back through the choice-entry sub-steps
+      if (qType === 'cc' && subStep === ccCount + 2) {
+        // from "mark correct" back to last choice
+        subStep = ccCount + 1;
+      } else {
+        subStep--;
+      }
+      renderMakerStep();
+    } else {
+      editMode = false; editIndex = -1; currentQ = {};
+      mcAnswer = null; tfAnswer = null; ccChoices = []; ccCorrect = new Set();
+      openEditList();
+    }
+    return;
+  }
+
+  if (subStep > 0) {
+    if (qType === 'cc') {
+      // From "mark correct answers" back to last choice
+      if (subStep === ccCount + 2) { subStep = ccCount + 1; }
+      else { subStep--; }
+    } else {
+      subStep--;
+    }
+    renderMakerStep();
+  } else if (qIndex > 0) {
+    qIndex--;
+    const prev = questions[qIndex];
+    questions.splice(qIndex, 1);
+    currentQ = { ...prev, choices: prev.choices ? [...prev.choices] : [] };
+    if (prev.type === 'mc') {
+      subStep = 5;
+      mcAnswer = prev.answer || null;
+    } else if (prev.type === 'tf') {
+      subStep = 1;
+      tfAnswer = prev.answer || null;
+    } else if (prev.type === 'cc') {
+      // Restore CC state
+      ccCount = prev.choices.length;
+      ccChoices = prev.choices.slice();
+      ccCorrect = new Set(prev.answers || []);
+      subStep = ccCount + 2;   // land on "mark correct" step
+    } else if (prev.type === 'wr') {
+      subStep = 0;
+    }
+    renderMakerStep();
+  } else {
+    makerStage = presetChoice === 'custom' ? 'custom' : 'setup';
+    renderMakerStep();
+  }
+}
+
+// ── MAKER: class list ───────────────────────────────────
+const MAX_CLASS = 50;
+
+function parseClassNames(text) {
+  const seen = new Set(), out = [];
+  String(text || '').split(/\r?\n/).forEach(line => {
+    const n = line.replace(/\s+/g, ' ').trim().slice(0, 60);
+    const k = n.toLowerCase();
+    if (n && !seen.has(k)) { seen.add(k); out.push(n); }
+  });
+  return out;
+}
+
+function openClassList() { makerStage = 'classlist'; renderMakerStep(); }
+
+function renderClassList() {
+  setProgress(100);
+  document.getElementById('makerContent').innerHTML = `
+    <h2>Class list</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Optional. Type your students' names, one on each line (up to ${MAX_CLASS}). Only these names can start the quiz, and each name can be used once. Leave it empty and students can type any name.</p>
+    <textarea id="classInp" dir="auto" rows="10" placeholder="yousef hisham&#10;ahmad mohamed&#10;mohamed mahmoud" oninput="classChanged(this.value)">${esc(classText)}</textarea>
+    <div class="time-hint" id="classCount"></div>
+    <div class="info-box" style="margin-top:16px;">Write each name the way students will type it — all in English or all in Arabic. Capital letters and small spelling mistakes are fine, but an English spelling and an Arabic spelling of the same name are not matched to each other.</div>
+    <div style="margin-top:24px;">
+      <button class="btn btn-outline" onclick="classCancel()">← Back</button>
+      <button class="btn" onclick="classDone()">Done ✓</button>
+    </div>
+    <div class="msg" id="msg"></div>`;
+  classChanged(classText);
+  const inp = document.getElementById('classInp');
+  if (inp) inp.focus();
+}
+
+function classChanged(v) {
+  classText = v;
+  const n = parseClassNames(v).length;
+  const el = document.getElementById('classCount');
+  if (el) el.textContent = n === 0 ? 'No names yet.' : n + (n === 1 ? ' name' : ' names') + (n > MAX_CLASS ? ' — too many, the limit is ' + MAX_CLASS + '.' : '.');
+}
+
+function classDone() {
+  const list = parseClassNames(classText);
+  if (list.length > MAX_CLASS) { showMsg('The limit is ' + MAX_CLASS + ' names. Remove ' + (list.length - MAX_CLASS) + '.'); return; }
+  classNames = list;
+  classText = list.join('\n');
+  makerStage = 'questions';
+  renderMakerStep();
+}
+
+function classCancel() {
+  classText = classNames.join('\n');
+  makerStage = 'questions';
+  renderMakerStep();
+}
+
+// ── MAKER: edit question list ───────────────────────────
+function openEditList() { makerStage = 'editlist'; renderMakerStep(); }
+
+function startEditQuestion(i) {
+  editMode = true;
+  editIndex = i;
+  qIndex = i;
+  const q = questions[i];
+  currentQ = { ...q, choices: q.choices ? [...q.choices] : [] };
+  subStep = 0;
+  if (q.type === 'mc') {
+    mcAnswer = q.answer || null;
+  } else if (q.type === 'tf') {
+    tfAnswer = q.answer || null;
+  } else if (q.type === 'cc') {
+    ccCount = q.choices.length;
+    ccChoices = q.choices.slice();
+    ccCorrect = new Set(q.answers || []);
+  }
+  makerStage = 'questions';
+  renderMakerStep();
+}
+
+// ── SAVE + SHARE LINK ──────────────────────────────────
+async function saveQuiz() {
+  const tl = timeLimitSeconds();
+  if (tl > MAX_TIME) { showMsg('The longest time limit is 24 hours.'); return; }
+  const flashBox = document.getElementById('hideFlashBox');
+  const shuffleBox2 = document.getElementById('shuffleBox');
+  const hf = flashBox ? flashBox.checked : hideFlash;
+  const sh = shuffleBox2 ? shuffleBox2.checked : shuffleOn;
+  const quiz = validateQuiz({ v: 1, id: newQuizId(), t: tl, hf: hf, sh: sh, questions: questions });
+  if (!quiz) { showMsg('Something is wrong with the quiz. Please rebuild it.'); return; }
+  const btn = document.getElementById('saveBtn');
+
+  let artifact = null;
+  try {
+    artifact = (window.claude && window.claude.use) ? await window.claude.use('artifact') : null;
+  } catch (e) {}
+
+  if (artifact) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    try {
+      await artifact.publish(buildPageHtml(quiz));
+      showMsg('Saved ✓ Reloading…', 'msg', true);
+    } catch (e) {
+      const code = e && e.code;
+      if (code === 'conflict') return;
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Quiz & Get Link →'; }
+      const text =
+        (code === 'not_writer' || code === 'not_granted' || code === 'not_declared' || code === 'consent_required' || code === 'capability_disabled')
+          ? 'Only the owner of this page can save the quiz. Open it from your own account.' :
+        code === 'too_large' ? 'The quiz is too large to save.' :
+        code === 'rate_limited' ? 'Too many saves. Wait a moment and try again.' :
+        'Could not save the quiz. Please try again.';
+      showMsg(text);
+    }
+    return;
+  }
+
+  const base = location.href.split('#')[0];
+  let link;
+  let secureData = null;
+  let staleCrypto = false;
+  linkWhy = [];
+  try {
+    if (!cryptoReady()) throw new Error(cryptoWhy());
+    secureData = await window.QuizCrypto.encode(quiz);
+    // Safety check: open the new link's data again. If it doesn't come back identical, the
+    // quiz-crypto.js this page is using is an old copy that can't handle every question type.
+    let back = null;
+    try { back = validateQuiz(await window.QuizCrypto.decode(secureData)); } catch (e) {}
+    if (!back || JSON.stringify(back) !== JSON.stringify(quiz)) {
+      secureData = null;
+      staleCrypto = true;
+      throw new Error('quiz-crypto.js is out of date');
+    }
+    link = base + '#q=' + secureData;
+  } catch (e) {
+    linkWhy.push('encryption: ' + ((e && e.message) || 'failed'));
+    link = base + '#quiz=' + encodeQuiz(quiz);
+  }
+  let note = '';
+  const isLocal = location.protocol === 'file:' || /^(localhost|127\.|192\.168\.)/.test(location.hostname);
+  if (!isLocal) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating link…'; }
+    let short = null;
+    if (secureData) {
+      const code = await serverSave(secureData);
+      if (code) short = base + '#s=' + code;
+    }
+    if (!short) short = await shortenLink(link);
+    if (short) link = short;
+    else note = 'Couldn\'t shorten the link (' + linkWhy.join('; ') + '). This is the full link, and it works the same. [page ' + PAGE_VERSION + ']';
+  }
+
+  let setupNote = '';
+  if (!isLocal) {
+    const tk = newTeacherKey();
+    try { if (tk) localStorage.setItem('qb_tk:' + quiz.id, tk); } catch (e) {}
+    const okSetup = await serverSetup(quiz.id, tk, classNames);
+    if (!okSetup) {
+      setupNote = classNames.length
+        ? '⚠️ The class list could not be saved on the server, so students would be able to type any name. Tap Back, then Save Quiz & Get Link again.'
+        : 'Note: this quiz could not be registered for the "Who\'s in the test" page, so giving a student another try will not work for it.';
+    }
+  }
+  renderLinkPanel(link, quiz.id);
+  const staleNote = staleCrypto
+    ? '⚠️ Your quiz-crypto.js file is an old copy, so this link is the long, unencrypted kind (it still keeps every question type correctly). Upload the new quiz-crypto.js next to index.html, then refresh this page with a hard refresh (Ctrl+Shift+R) and save again.'
+    : '';
+  const notes = [staleNote, note, setupNote].filter(Boolean).join(' ');
+  if (notes) showMsg(notes, 'msg');
+}
+
+function newTeacherKey() {
+  try {
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) { return ''; }
+}
+
+function teacherKeyFor(id) {
+  try { return localStorage.getItem('qb_tk:' + id) || ''; } catch (e) { return ''; }
+}
+
+async function serverSetup(id, tk, names) {
+  if (!tk) return false;
+  for (let i = 0; i < 2; i++) {
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(SHORT_API + '/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id, tk: tk, names: names || [] }),
+        signal: ctl.signal
+      });
+      clearTimeout(timer);
+      if (r.ok) return true;
+      if (r.status === 404 || r.status === 403) return false;
+    } catch (e) {}
+  }
+  return false;
+}
+
+async function shortenLink(url) {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 7000);
+    const r = await fetch('https://is.gd/create.php?format=json&url=' + encodeURIComponent(url), { signal: ctl.signal });
+    clearTimeout(timer);
+    const d = await r.json();
+    if (d && typeof d.shorturl === 'string' && d.shorturl.indexOf('https://is.gd/') === 0) return d.shorturl;
+    linkWhy.push('is.gd: ' + ((d && d.errormessage) || 'no link'));
+    return null;
+  } catch (e) {
+    linkWhy.push('is.gd: ' + (e && e.name === 'AbortError' ? 'timed out' : (e && e.message) || 'blocked'));
+    return null;
+  }
+}
+
+function renderLinkPanel(link, id) {
+  const fileNote = location.protocol === 'file:'
+    ? '<p class="screenshot-hint" style="text-align:left;">This page is open from a file on your computer, so students can\'t open this link. Put the page online first, then create the link again.</p>'
+    : '';
+  const liveKey = id ? teacherKeyFor(id) : '';
+  const liveBtn = id
+    ? `<div style="margin-top:12px;"><a class="btn btn-outline" href="#live=${esc(id)}${liveKey ? '.' + esc(liveKey) : ''}" target="_blank" rel="noopener">Live Results →</a></div>`
+    : '';
+  document.getElementById('makerContent').innerHTML = `
+    <h2>Your student link 🔗</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Send this link to your students. The quiz is compressed and encrypted inside it, so the answers can't be read from the link.</p>
+    <input type="text" id="linkBox" readonly value="${esc(link)}" onclick="this.select()">
+    <div style="margin-top:20px;">
+      <button class="btn" onclick="copyLink()">Copy Link</button>
+      <button class="btn btn-outline" style="margin-left:10px;" onclick="renderMakerStep()">Back</button>
+    </div>
+    ${liveBtn}
+    <p class="time-hint" style="margin-top:10px;">Live Results opens in a new tab and updates on its own as students finish — keep it open on your screen or projector.</p>
+    <div class="msg" id="msg"></div>
+    ${fileNote}`;
+}
+
+async function copyLink() {
+  const box = document.getElementById('linkBox');
+  if (!box) return;
+  box.select();
+  let ok = false;
+  try { await navigator.clipboard.writeText(box.value); ok = true; } catch (e) {}
+  if (!ok) { try { ok = document.execCommand('copy'); } catch (e) {} }
+  showMsg(ok ? 'Link copied ✓' : 'Press and hold the link to copy it.', 'msg', ok);
+}
+
+// ── TEACHER PANEL (saved quiz, owner only) ─────────────
+async function detectTeacher() {
+  try {
+    if (!window.claude || !window.claude.use) return;
+    const user = await window.claude.use('user');
+    if (!user) return;
+    const canEdit = await user.canEdit();
+    if (canEdit && (!takerStarted || restored) && !teacherMode) renderTeacherPanel();
+  } catch (e) {}
+}
+
+function renderTeacherPanel() {
+  teacherMode = true;
+  const mc = quizData.filter(q => q.type === 'mc').length;
+  const tf = quizData.filter(q => q.type === 'tf').length;
+  const cc = quizData.filter(q => q.type === 'cc').length;
+  const wr = quizData.filter(q => q.type === 'wr').length;
+  let typeLine = [mc && (mc + ' MC'), tf && (tf + ' T/F'), cc && (cc + ' Custom'), wr && (wr + ' Written')].filter(Boolean).join(' + ');
+  document.getElementById('home').innerHTML = `
+    <div class="brand">© Youssef Hisham 2026</div>
+    <h1>Your quiz is live</h1>
+    <p class="subtitle">Only you see this screen. Students who open this page's link go straight to the quiz.</p>
+    <div class="info-box">
+      <strong>${typeLine}</strong><br>${quizTime ? '⏱ Time limit: ' + limitText(quizTime) : '⏱ No time limit'}<br>${quizHideFlash ? '👁 Green / red answer flash: hidden' : '👁 Green / red answer flash: shown'}<br>${quizShuffle ? '🔀 Questions and answers are shuffled for each student' : '🔀 Questions and answers are not shuffled'}<br><br>
+      1. Copy this page's link (use the share option where you opened it).<br>
+      2. Send it to your students.<br>
+      3. Each student enters their name and answers. Their result is sent to you automatically as soon as they finish.
+    </div>
+    <div style="display:flex; gap:12px;">
+      <button class="btn" onclick="previewSaved()">Preview as Student</button>
+      <button class="btn btn-outline" onclick="startMaker()">Build a New Quiz</button>
+    </div>`;
+  show('home');
+}
+
+function previewSaved() {
+  previewMode = true;
+  resetTaker();
+  show('taker');
+  renderTakerName();
+}
+
+function exitPreview() {
+  previewMode = false;
+  resetTaker();
+  if (teacherMode) {
+    renderTeacherPanel();
+  } else {
+    show('maker');
+    renderMakerStep();
+  }
+}
+
+// ── TAKER ──────────────────────────────────────────────
+function initQueue() {
+  const plain = quizData ? quizData.map((_, i) => i) : [];
+  fullOrder = quizShuffle ? shuffled(plain) : plain;
+  // For CC questions the "perm" is still an index shuffle of their choices
+  perms = quizData ? quizData.map(q => {
+    if (q.type === 'mc') return quizShuffle ? shuffled([0, 1, 2, 3]) : [0, 1, 2, 3];
+    if (q.type === 'cc') return quizShuffle ? shuffled(q.choices.map((_, i) => i)) : q.choices.map((_, i) => i);
+    return null;
+  }) : [];
+  queue = fullOrder.slice();
+  answerMap = quizData ? quizData.map(() => null) : [];
+}
+
+function resetTaker() {
+  initQueue();
+  takerAnswers = [];
+  takerName = '';
+  takerStarted = false;
+  restored = false;
+  quizLocked = false;
+  takerBusy = false;
+  resultSubmitted = false;
+  stopTimer();
+  timeIsUp = false;
+  timerStart = 0;
+  claimedOnServer = false;
+  pendingPick = '';
+  ccSelected = new Set();
+  wrDrafts = {};
+  mySid = '';
+  reportingNow = false;
+  stopGradePoll();
+}
+
+function activateTaker() {
+  if (timeLimitSeconds() > MAX_TIME) { showMsg('The longest time limit is 24 hours.'); return; }
+  quizData = [...questions];
+  quizTime = timeLimitSeconds();
+  const flashBox = document.getElementById('hideFlashBox');
+  quizHideFlash = flashBox ? flashBox.checked : hideFlash;
+  const shuffleBox = document.getElementById('shuffleBox');
+  quizShuffle = shuffleBox ? shuffleBox.checked : shuffleOn;
+  previewMode = true;
+  resetTaker();
+  show('taker');
+  renderTakerName();
+}
+
+function startTaker() {
+  if (!quizData) {
+    showMsg('There is no quiz on this page yet. Open the link your teacher sent you.', 'homeMsg');
+    return;
+  }
+  previewMode = true;
+  resetTaker();
+  show('taker');
+  renderTakerName();
+}
+
+function renderTakerName() {
+  document.getElementById('takerContent').innerHTML = `
+    <h2>Welcome</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:28px;">Enter your name before starting the quiz.</p>
+    ${quizTime ? `<div class="info-box">⏱ You have <strong>${limitText(quizTime)}</strong> to finish this quiz. The timer starts when you tap Start Quiz.</div>` : ''}
+    <div class="name-input-wrap">
+      <label>Your Name</label>
+      <input type="text" dir="auto" id="studentName" placeholder="e.g. Ahmed Mohamed" maxlength="60">
+    </div>
+    <button class="btn" id="startBtn" onclick="beginQuiz()">Start Quiz →</button>
+    <div class="msg" id="startMsg"></div>
+    <div id="confirmBox" style="margin-top:16px;"></div>
+    ${previewMode ? '<div style="margin-top:20px;"><button class="btn btn-outline" onclick="exitPreview()">Exit preview</button></div>' : ''}`;
+}
+
+// ── ONE ATTEMPT PER STUDENT ─────────────────────────────
+async function deviceInfo() {
+  try {
+    const ua = navigator.userAgent || '';
+    const platform = /iPhone|iPad|iPod/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : 'Other';
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.round(Math.min(screen.width, screen.height) * dpr / 20) * 20;
+    const h = Math.round(Math.max(screen.width, screen.height) * dpr / 20) * 20;
+    let tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+    let model = '';
+    try {
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        const v = await navigator.userAgentData.getHighEntropyValues(['model']);
+        model = (v && v.model) ? String(v.model).slice(0, 40) : '';
+      }
+    } catch (e) {}
+    const src = [platform, w + 'x' + h, tz].join('|');
+    return { sig: hashStr(src) + hashStr(src.split('').reverse().join('')), label: platform + (model ? ' ' + model : '') + ' · ' + w + '×' + h };
+  } catch (e) {
+    return { sig: '', label: '' };
+  }
+}
+
+async function claimAttempt(name, pick) {
+  if (previewMode || !quizId || !SHORT_API) return { ok: true, claimed: false };
+  if (!attemptToken) attemptToken = newQuizId() + newQuizId();
+  const dev = await deviceInfo();
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(SHORT_API + '/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: quizId, name: name, token: attemptToken, sig: dev.sig, label: dev.label, lim: quizTime || 0, pick: pick || '' }),
+      signal: ctl.signal
+    });
+    clearTimeout(timer);
+    if (r.status === 409) return { ok: false, reason: 'taken' };
+    if (r.status === 422) {
+      let why = '';
+      try { why = (await r.json()).error; } catch (e) {}
+      return { ok: false, reason: why === 'ambiguous' ? 'ambiguous' : 'nomatch' };
+    }
+    if (r.status === 404 || r.status === 405) return { ok: true, claimed: false };
+    if (!r.ok) return { ok: false, reason: 'server' };
+    let d = {};
+    try { d = await r.json(); } catch (e) {}
+    if (d && d.status === 'confirm' && typeof d.name === 'string') return { ok: false, reason: 'confirm', name: d.name };
+    return { ok: true, claimed: true, name: (d && typeof d.name === 'string') ? d.name : '' };
+  } catch (e) {
+    return { ok: false, reason: 'network' };
+  }
+}
+
+async function wasReset(name) {
+  if (!quizId || !SHORT_API) return false;
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 6000);
+    const r = await fetch(SHORT_API + '/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: quizId, name: name }),
+      signal: ctl.signal
+    });
+    clearTimeout(timer);
+    if (!r.ok) return false;
+    const d = await r.json();
+    return !!(d && d.reset === true);
+  } catch (e) {
+    return false;
+  }
+}
+
+async function beginQuiz(pick) {
+  const nameEl = document.getElementById('studentName');
+  const btn = document.getElementById('startBtn');
+  if (btn && btn.disabled) return;
+  const typed = nameEl ? nameEl.value.trim() : '';
+  const n = (typeof pick === 'string' && pick) ? pick : typed;
+  if (!n) { if (nameEl) nameEl.style.borderColor='#b83232'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  showMsg('', 'startMsg');
+  const box = document.getElementById('confirmBox');
+  if (box) box.innerHTML = '';
+  const claim = await claimAttempt(n, (typeof pick === 'string') ? pick : '');
+  if (claim.reason === 'confirm') {
+    if (btn) { btn.disabled = false; btn.textContent = 'Start Quiz →'; }
+    pendingPick = claim.name;
+    if (box) box.innerHTML = `
+      <div class="info-box">Are you <strong dir="auto">${esc(claim.name)}</strong>?</div>
+      <button class="btn" onclick="beginQuiz(pendingPick)">Yes, start</button>
+      <button class="btn btn-outline" onclick="cancelConfirm()">No, change my name</button>`;
+    return;
+  }
+  if (!claim.ok) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Start Quiz →'; }
+    showMsg(
+      claim.reason === 'taken' ? 'This name has already started this quiz, so it can\'t be taken again. If this is a mistake (for example your phone switched off), tell your teacher.' :
+      claim.reason === 'nomatch' ? 'We couldn\'t find that name on your teacher\'s list. Check the spelling and try again. If it still doesn\'t work, tell your teacher.' :
+      claim.reason === 'ambiguous' ? 'That name is close to more than one name on the list. Type your full name exactly as your teacher wrote it, or tell your teacher.' :
+      'Could not reach the server. Check your internet connection and tap Start Quiz again.', 'startMsg');
+    return;
+  }
+  takerName = claim.name || n;
+  claimedOnServer = !!claim.claimed;
+  takerStarted = true;
+  timerStart = Date.now();
+  saveProgress();
+  renderTakerQ();
+  startTimerTick();
+}
+
+function cancelConfirm() {
+  pendingPick = '';
+  const box = document.getElementById('confirmBox');
+  if (box) box.innerHTML = '';
+  const nameEl = document.getElementById('studentName');
+  if (nameEl) { nameEl.focus(); nameEl.select(); }
+}
+
+// ── TAKER: render question ──────────────────────────────
+function renderTakerQ() {
+  takerBusy = false;
+  ccSelected = new Set();   // clear any CC selection for the new question
+  if (quizLocked) { renderLocked(); return; }
+  const idx = queue[0];
+  const q = quizData[idx];
+  const total = quizData.length;
+  const pct = Math.round(((total - queue.length) / total) * 100);
+
+  let typeLabel = q.type === 'mc' ? 'Multiple Choice' : q.type === 'tf' ? 'True / False' : q.type === 'wr' ? 'Written' : 'Custom Choice';
+
+  let html = `
+    <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+    <div class="q-row">
+      <div class="q-counter">Question ${fullOrder.indexOf(idx)+1} of ${total} · ${typeLabel}</div>
+      ${quizTime ? '<div class="timer-pill" id="timerBox"></div>' : ''}
+    </div>
+    <h2 dir="auto" style="margin-bottom:24px;">${esc(q.text)}</h2>`;
+
+  if (q.type === 'mc') {
+    const pm = perms[idx] || [0, 1, 2, 3];
+    html += ['A','B','C','D'].map((l,i) => {
+      const orig = 'ABCD'[pm[i]];
+      return `
+      <div class="answer-option" data-orig="${orig}" onclick="selectAnswer('${orig}')">
+        <span class="option-label">${l}</span>
+        <span dir="auto">${esc(q.choices[pm[i]])}</span>
+      </div>`;
+    }).join('');
+  } else if (q.type === 'tf') {
+    html += `<div class="tf-options">
+      <button class="tf-btn" onclick="selectAnswer('True')">True</button>
+      <button class="tf-btn" onclick="selectAnswer('False')">False</button>
+    </div>`;
+  } else if (q.type === 'cc') {
+    // Multi-select: student taps choices to toggle, then taps Confirm
+    const pm = perms[idx] || q.choices.map((_, i) => i);
+    const multiLabel = q.answers.length > 1
+      ? `<p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Select <strong>all</strong> correct answers (${q.answers.length} total), then tap Confirm.</p>`
+      : `<p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Select the correct answer, then tap Confirm.</p>`;
+    html += multiLabel;
+    html += pm.map((origIdx, dispIdx) => {
+      const letter = CC_LETTERS[dispIdx];
+      return `
+      <div class="answer-option cc-multi" id="ccopt_${dispIdx}" data-orig="${origIdx}" onclick="ccToggleTaker(${dispIdx})">
+        <span class="option-label">${letter}</span>
+        <span dir="auto">${esc(q.choices[origIdx])}</span>
+      </div>`;
+    }).join('');
+    html += `<div class="cc-submit-row"><button class="btn" id="ccConfirmBtn" onclick="confirmCCAnswer()">Confirm Answer →</button></div>`;
+  } else if (q.type === 'wr') {
+    html += `<p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Type your answer below. Your teacher will mark it.</p>
+      <textarea id="wrInp" dir="auto" rows="6" maxlength="${WR_MAX}" placeholder="Write your answer here…" oninput="wrDrafts[${idx}]=this.value">${esc(wrDrafts[idx] || '')}</textarea>
+      <div class="cc-submit-row"><button class="btn" id="wrBtn" onclick="submitWritten()">Submit Answer →</button></div>
+      <div class="msg" id="msg"></div>`;
+  }
+
+  if (queue.length > 1) {
+    html += `<div class="skip-row"><button class="btn btn-outline skip-btn" onclick="skipQuestion()">Skip for now</button></div>`;
+  }
+
+  document.getElementById('takerContent').innerHTML = html;
+  if (quizTime) paintTimer(timeLeft());
+}
+
+function ccToggleTaker(dispIdx) {
+  if (quizLocked || takerBusy) return;
+  const el = document.getElementById('ccopt_' + dispIdx);
+  if (!el) return;
+  if (ccSelected.has(dispIdx)) {
+    ccSelected.delete(dispIdx);
+    el.classList.remove('selected');
+  } else {
+    ccSelected.add(dispIdx);
+    el.classList.add('selected');
+  }
+}
+
+// Confirm CC answer: compare student's selected original indices to question's correct indices
+function confirmCCAnswer() {
+  if (quizLocked || takerBusy) return;
+  if (ccSelected.size === 0) {
+    showMsg('Please select at least one answer.', 'msg');
+    return;
+  }
+  const idx = queue[0];
+  const q = quizData[idx];
+  const pm = perms[idx] || q.choices.map((_, i) => i);
+
+  // Convert display indices → original indices
+  const selectedOriginal = [...ccSelected].map(d => pm[d]);
+  const correctOriginal = q.answers.slice();
+
+  // Exact match required
+  const isCorrect =
+    selectedOriginal.length === correctOriginal.length &&
+    selectedOriginal.every(o => correctOriginal.includes(o));
+
+  // Encode as a sorted string for storage
+  const givenStr = selectedOriginal.slice().sort((a,b)=>a-b).join(',');
+  const correctStr = correctOriginal.slice().sort((a,b)=>a-b).join(',');
+
+  answerMap[idx] = {
+    question: q.text,
+    given: givenStr,
+    correct: correctStr,
+    right: isCorrect
   };
+  takerBusy = true;
+  queue.shift();
+  saveProgress();
+
+  // Flash each selected option
+  if (!quizHideFlash) {
+    document.querySelectorAll('.answer-option.cc-multi').forEach(el => {
+      const origIdx = parseInt(el.getAttribute('data-orig'));
+      const isSel = selectedOriginal.includes(origIdx);
+      const isCorr = correctOriginal.includes(origIdx);
+      if (isSel && isCorr) el.classList.add('correct');
+      else if (isSel && !isCorr) el.classList.add('wrong');
+      else if (!isSel && isCorr) el.classList.add('partial');  // missed a correct one
+    });
+  } else {
+    // Just highlight selected in neutral "selected" style
+    document.querySelectorAll('.answer-option.cc-multi').forEach(el => {
+      const origIdx = parseInt(el.getAttribute('data-orig'));
+      if (selectedOriginal.includes(origIdx)) el.classList.add('selected');
+    });
+  }
+
+  const btn = document.getElementById('ccConfirmBtn');
+  if (btn) btn.disabled = true;
+
+  setTimeout(() => {
+    if (timeIsUp) return;
+    if (queue.length === 0) {
+      takerAnswers = answerMap.slice();
+      quizLocked = true;
+      renderResult();
+    } else {
+      renderTakerQ();
+    }
+  }, quizHideFlash ? 400 : 900);
 }
 
-  window.QuizCrypto = { encode: encodeSecure, decode: decodeSecure };
+// Written answer: saved as "waiting for the teacher" (right = null)
+function submitWritten() {
+  if (quizLocked || takerBusy) return;
+  const el = document.getElementById('wrInp');
+  const text = el ? el.value.trim().slice(0, WR_MAX) : '';
+  if (!text) { showMsg('Please write an answer first.', 'msg'); return; }
+  const idx = queue[0];
+  const q = quizData[idx];
+  takerBusy = true;
+  answerMap[idx] = { question: q.text, given: text, correct: '', right: null, written: true };
+  delete wrDrafts[idx];
+  queue.shift();
+  saveProgress();
+  const btn = document.getElementById('wrBtn');
+  if (btn) btn.disabled = true;
+  if (el) el.disabled = true;
+  setTimeout(() => {
+    if (timeIsUp) return;
+    if (queue.length === 0) {
+      takerAnswers = answerMap.slice();
+      quizLocked = true;
+      renderResult();
+    } else {
+      renderTakerQ();
+    }
+  }, 300);
+}
+
+// ── TIMER ──────────────────────────────────────────────
+function timeLeft() {
+  return Math.max(0, Math.ceil((quizTime * 1000 - (Date.now() - timerStart)) / 1000));
+}
+
+function fmtClock(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const p = n => String(n).padStart(2, '0');
+  return h ? h + ':' + p(m) + ':' + p(s) : p(m) + ':' + p(s);
+}
+
+function paintTimer(left) {
+  const box = document.getElementById('timerBox');
+  if (!box) return;
+  box.textContent = '⏱ ' + fmtClock(left);
+  box.classList.toggle('low', left <= Math.min(60, Math.ceil(quizTime / 5)));
+}
+
+function timerTick() {
+  const left = timeLeft();
+  paintTimer(left);
+  if (left <= 0) timeUp();
+}
+
+function startTimerTick() {
+  stopTimer();
+  if (!quizTime) return;
+  timerId = setInterval(timerTick, 1000);
+}
+
+function stopTimer() {
+  if (timerId) { clearInterval(timerId); timerId = null; }
+}
+
+function timeUp() {
+  stopTimer();
+  if (timeIsUp || quizLocked) return;
+  timeIsUp = true;
+  queue.forEach(i => {
+    const q = quizData[i];
+    if (q.type === 'wr') { answerMap[i] = { question: q.text, given: '', correct: '', right: false, written: true, noAns: true }; return; }
+    answerMap[i] = { question: q.text, given: 'No answer', correct: q.type === 'cc' ? (q.answers || []).join(',') : q.answer, right: false };
+  });
+  queue = [];
+  takerAnswers = answerMap.slice();
+  quizLocked = true;
+  takerBusy = false;
+  saveProgress();
+  renderResult();
+}
+
+function skipQuestion() {
+  if (quizLocked || takerBusy || queue.length < 2) return;
+  const now = Date.now();
+  if (now - lastSkipAt < 400) return;
+  lastSkipAt = now;
+  ccSelected = new Set();
+  queue.push(queue.shift());
+  saveProgress();
+  renderTakerQ();
+}
+
+function selectAnswer(val) {
+  if (quizLocked || takerBusy) return;
+  takerBusy = true;
+  const idx = queue[0];
+  const q = quizData[idx];
+
+  const isCorrect = val === q.answer;
+  answerMap[idx] = { question: q.text, given: val, correct: q.answer, right: isCorrect };
+  queue.shift();
+  saveProgress();
+
+  if (q.type === 'mc') {
+    document.querySelectorAll('.answer-option').forEach(el => {
+      const l = el.getAttribute('data-orig');
+      if (l === val) el.classList.add(quizHideFlash ? 'selected' : (isCorrect ? 'correct' : 'wrong'));
+      if (!quizHideFlash && l === q.answer && !isCorrect) el.classList.add('correct');
+    });
+  } else {
+    document.querySelectorAll('.tf-btn').forEach(el => {
+      if (el.textContent === val) el.classList.add(quizHideFlash ? 'selected' : (isCorrect ? 'correct' : 'wrong'));
+      if (!quizHideFlash && el.textContent === q.answer && !isCorrect) el.classList.add('correct');
+    });
+  }
+
+  setTimeout(() => {
+    if (timeIsUp) return;
+    if (queue.length === 0) {
+      takerAnswers = answerMap.slice();
+      quizLocked = true;
+      renderResult();
+    } else {
+      renderTakerQ();
+    }
+  }, quizHideFlash ? 400 : 800);
+}
+
+function renderResult() {
+  stopTimer();
+  paintResult();
+  if (!previewMode) reportResult();
+  startGradePoll();
+}
+
+// Draws the result screen. Called again whenever the teacher marks a written answer.
+function paintResult() {
+  const score = takerAnswers.filter(a => a.right === true).length;
+  const pending = takerAnswers.filter(a => a.right === null).length;
+  const total = takerAnswers.length;
+  const pct = Math.round((score / total) * 100);
+  const grade = pending ? 'So far' : gradeFor(pct);
+  const timedOut = takerAnswers.some(a => a.given === 'No answer' || a.noAns);
+
+  let rows = takerAnswers.map((a,i) => `
+    <div class="breakdown-row">
+      <span dir="auto">Q${i+1}: ${esc(a.question.length>40?a.question.slice(0,40)+'…':a.question)}</span>
+      ${a.right === null ? '<span class="pending-tag">⏳ Waiting for teacher</span>' : `<span class="${a.right?'correct-tag':'wrong-tag'}">${a.right?'✓ Correct':'✗ Wrong'}</span>`}
+    </div>`).join('');
+
+  const statusText = previewMode ? '' : (resultSubmitted ? '✅ Your result has been sent to your teacher.' : '📤 Sending your result to your teacher…');
+  const pendingNote = pending
+    ? `<p class="wr-note">✍️ ${pending} written ${pending === 1 ? 'answer is' : 'answers are'} waiting for your teacher to mark ${pending === 1 ? 'it' : 'them'}.${previewMode ? ' (In a real quiz you mark these in Live Results.)' : ' Keep this page open — your score updates here by itself.'}</p>`
+    : '';
+
+  document.getElementById('takerContent').innerHTML = `
+    <div class="result-name" dir="auto">${esc(takerName)}</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">© Youssef Hisham 2026</div>
+    <div class="result-score">${score}/${total}</div>
+    <div class="result-label">${grade} · ${pct}%</div>
+    ${pendingNote}
+    ${timedOut ? '<p class="time-note">⏰ Time was up. Questions you didn\'t answer were marked wrong.</p>' : ''}
+    <div class="result-breakdown">${rows}</div>
+    <p class="screenshot-hint" id="resultMsg">${statusText}</p>
+    <div class="home-btns">
+      <button class="btn" onclick="closeQuiz()">${previewMode ? 'Exit Preview' : 'Close Quiz'}</button>
+    </div>`;
+}
+
+// While written answers are waiting, ask the server every few seconds whether the teacher marked them.
+function startGradePoll() {
+  stopGradePoll();
+  if (previewMode || !quizId) return;
+  if (!takerAnswers.some(a => a && a.right === null)) return;
+  gradePollId = setInterval(pollMyGrades, 10000);
+  if (mySid) pollMyGrades();
+}
+
+function stopGradePoll() {
+  if (gradePollId) { clearInterval(gradePollId); gradePollId = null; }
+}
+
+async function pollMyGrades() {
+  if (previewMode || !mySid || !quizId) return;
+  try {
+    const r = await fetch(SHORT_API + '/my-grades', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: quizId, sid: mySid })
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    const g = (d && d.g && typeof d.g === 'object') ? d.g : {};
+    let changed = false;
+    quizData.forEach((q, i) => {
+      const a = answerMap[i];
+      if (q.type !== 'wr' || !a || !a.written || a.noAns) return;
+      const nr = g[i] === 1 ? true : g[i] === 0 ? false : null;
+      if (a.right !== nr) { a.right = nr; changed = true; }
+    });
+    if (changed) {
+      takerAnswers = answerMap.slice();
+      if (quizLocked) paintResult();
+    }
+    if (!answerMap.some(a => a && a.right === null)) stopGradePoll();
+  } catch (e) {}
+}
+
+async function reportResult() {
+  if (previewMode || resultSubmitted || !quizId || reportingNow) return;
+  reportingNow = true;
+  const payload = {
+    id: quizId,
+    name: takerName,
+    score: takerAnswers.filter(a => a.right === true).length,
+    total: takerAnswers.length,
+    breakdown: takerAnswers.map(a => a.written
+      ? { q: a.question, w: true, a: a.given }
+      : { q: a.question, r: a.right })
+  };
+  const trySend = async () => {
+    try {
+      const r = await fetch(SHORT_API + '/submit-result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) return null;
+      try { return await r.json(); } catch (e) { return {}; }
+    } catch (e) { return null; }
+  };
+  let res = await trySend();
+  if (!res) { await new Promise(resolve => setTimeout(resolve, 4000)); res = await trySend(); }
+  reportingNow = false;
+  const el = document.getElementById('resultMsg');
+  if (res) {
+    resultSubmitted = true;
+    if (typeof res.sid === 'string' && /^[a-z0-9]{4,12}$/.test(res.sid)) mySid = res.sid;
+    saveProgress();
+    if (el) el.textContent = '✅ Your result has been sent to your teacher.';
+    startGradePoll();
+  } else if (el) {
+    el.textContent = '⚠️ Could not reach the server. Please tell your teacher your score directly: ' + payload.score + '/' + payload.total + '.';
+  }
+}
+
+function closeQuiz() {
+  if (previewMode) { exitPreview(); return; }
+  renderLocked();
+}
+
+function renderLocked() {
+  document.getElementById('takerContent').innerHTML = `
+    <div class="locked">
+      <div class="locked-icon">🔒</div>
+      <h2>Quiz Closed</h2>
+      <p style="color:var(--muted);font-size:14px;margin-top:8px;">This quiz session has ended.<br>Please contact your teacher for a new session.</p>
+    </div>`;
+}
+
+// ── LIVE RESULTS (teacher's screen) ────────────────────
+function startLiveResults(id) {
+  liveQuizId = id;
+  show('live');
+  renderLiveResults([]);
+  pollLiveResults();
+  if (livePollId) clearInterval(livePollId);
+  livePollId = setInterval(pollLiveResults, 3000);
+}
+
+async function pollLiveResults() {
+  if (!liveQuizId) return;
+  if (roomOpen) pollRoom();
+  const startedAt = Date.now();
+  try {
+    let d = null;
+    const tk = liveTeacherKey();
+    if (tk && !liveViewOnly) {
+      // Teacher: also gets the written answers and can mark them
+      const r = await fetch(SHORT_API + '/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: liveQuizId, tk: tk })
+      });
+      if (r.status === 403) liveViewOnly = true;
+      else if (r.ok) d = await r.json();
+    }
+    if (!d) {
+      const r = await fetch(SHORT_API + '/results?id=' + encodeURIComponent(liveQuizId));
+      if (!r.ok) return;
+      d = await r.json();
+    }
+    // Don't let an old reply undo a mark the teacher just made
+    if (gradeBusy > 0 || startedAt < lastGradeDoneAt) return;
+    if (d && Array.isArray(d.results)) renderLiveResults(d.results, d.flags);
+  } catch (e) {}
+}
+
+function liveTeacherKey() { return liveTkMem || teacherKeyFor(liveQuizId); }
+
+function openRoom() {
+  roomOpen = true;
+  document.getElementById('liveMain').style.display = 'none';
+  document.getElementById('liveRoom').style.display = 'block';
+  const sa = document.getElementById('scrollArea');
+  if (sa) sa.scrollTop = 0;
+  showMsg('', 'roomMsg');
+  pollRoom();
+  if (!roomTickId) roomTickId = setInterval(tickRoom, 1000);
+}
+
+function closeRoom() {
+  roomOpen = false;
+  document.getElementById('liveRoom').style.display = 'none';
+  document.getElementById('liveMain').style.display = 'block';
+  if (roomTickId) { clearInterval(roomTickId); roomTickId = null; }
+}
+
+async function pollRoom() {
+  if (!liveQuizId) return;
+  const status = document.getElementById('roomStatus');
+  const tk = liveTeacherKey();
+  if (!tk) {
+    if (status) status.textContent = 'This browser doesn\'t have your teacher key. Open Live Results with the button on the page where you saved the quiz.';
+    return;
+  }
+  try {
+    const r = await fetch(SHORT_API + '/live', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: liveQuizId, tk: tk })
+    });
+    if (r.status === 403) {
+      if (status) status.textContent = 'This browser doesn\'t have the teacher key for this quiz. Open Live Results with the button on the page where you saved the quiz.';
+      return;
+    }
+    if (!r.ok) return;
+    const d = await r.json();
+    roomOffset = (typeof d.now === 'number' ? d.now : Date.now()) - Date.now();
+    roomData = d;
+    renderRoom();
+  } catch (e) {}
+}
+
+function renderRoom() {
+  const d = roomData;
+  if (!d) return;
+  const items = (Array.isArray(d.items) ? d.items : []).slice().sort((a, b) => ((a.d ? 1 : 0) - (b.d ? 1 : 0)) || (b.t - a.t));
+  const inTest = items.filter(i => !i.d).length;
+  const status = document.getElementById('roomStatus');
+  const list = document.getElementById('roomList');
+  if (!status || !list) return;
+  status.textContent = items.length === 0
+    ? 'Nobody has started yet. This page updates on its own.'
+    : inTest + (inTest === 1 ? ' student is' : ' students are') + ' in the test right now. This page updates on its own.';
+  const rows = items.map(i => `
+    <div class="room-row">
+      <div class="room-main">
+        <div class="room-name" dir="auto">${esc(i.n)}</div>
+        <div class="room-timer" data-t="${Number(i.t) || 0}" data-lim="${Number(i.lim) || 0}" data-d="${Number(i.d) || 0}"></div>
+      </div>
+      <button class="btn btn-outline room-btn" data-k="${esc(i.k)}" data-n="${esc(i.n)}" onclick="giveAnotherTry(this)">Give another try</button>
+    </div>`).join('');
+  let waiting = '';
+  if (d.roster) {
+    const ns = Array.isArray(d.notStarted) ? d.notStarted : [];
+    waiting = ns.length
+      ? `<div class="info-box" style="margin-top:16px;"><strong>Not started yet (${ns.length}):</strong> <span dir="auto">${ns.map(esc).join(', ')}</span></div>`
+      : `<div class="info-box" style="margin-top:16px;">Everyone on your class list has started.</div>`;
+  }
+  list.innerHTML = rows + waiting;
+  tickRoom();
+}
+
+function tickRoom() {
+  const now = Date.now() + roomOffset;
+  document.querySelectorAll('#roomList .room-timer').forEach(el => {
+    const t = Number(el.dataset.t), lim = Number(el.dataset.lim), done = Number(el.dataset.d);
+    let text, cls = '';
+    if (done) {
+      text = '✅ Finished' + (t ? ' · took ' + fmtClock(Math.max(0, Math.floor((done - t) / 1000))) : '');
+      cls = 'ok';
+    } else if (lim) {
+      const left = Math.ceil(lim - (now - t) / 1000);
+      if (left > 0) { text = '⏱ ' + fmtClock(left) + ' left'; cls = left <= 60 ? 'warn' : ''; }
+      else { text = '⌛ Time\'s up — not submitted'; cls = 'warn'; }
+    } else {
+      text = '⏱ ' + fmtClock(Math.max(0, Math.floor((now - t) / 1000))) + ' in the test';
+    }
+    el.textContent = text;
+    el.className = 'room-timer' + (cls ? ' ' + cls : '');
+  });
+}
+
+async function giveAnotherTry(btn) {
+  const k = btn.dataset.k, n = btn.dataset.n;
+  if (!confirm('Let ' + n + ' take the quiz again?\n\nThey need to open the quiz link again. Any result they already sent stays on the Live Results page.')) return;
+  btn.disabled = true;
+  try {
+    const r = await fetch(SHORT_API + '/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: liveQuizId, tk: liveTeacherKey(), k: k })
+    });
+    if (r.ok) {
+      showMsg(n + ' can start again. Ask them to open the quiz link again.', 'roomMsg', true);
+      pollRoom();
+      return;
+    }
+    showMsg('Could not give another try (the server said no). Open Live Results from the page where you saved the quiz.', 'roomMsg');
+  } catch (e) {
+    showMsg('Could not reach the server. Try again.', 'roomMsg');
+  }
+  btn.disabled = false;
+}
+
+function renderLiveFlags(flags) {
+  const box = document.getElementById('liveFlags');
+  if (!box) return;
+  if (!Array.isArray(flags) || !flags.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'block';
+  box.innerHTML = '<strong>⚠️ Possible retakes</strong> — worth a look:' + flags.slice().reverse().map(f => `
+    <div style="margin-top:8px;"><strong dir="auto">${esc(f.n)}</strong> started on what looks like the same phone as <strong dir="auto">${esc((Array.isArray(f.of) ? f.of : []).join(', '))}</strong>${f.ip ? ' (same network too)' : ''}${f.d ? ' · ' + esc(f.d) : ''}</div>`).join('');
+}
+
+function renderLiveResults(list, flags) {
+  liveList = list;
+  if (flags !== undefined) liveFlagsMem = flags;
+  renderLiveFlags(liveFlagsMem);
+  const grid = document.getElementById('liveGrid');
+  const status = document.getElementById('liveStatus');
+  if (!grid || !status) return;
+  if (!list.length) {
+    status.textContent = 'Waiting for students to finish… this page updates on its own.';
+    grid.innerHTML = '';
+    return;
+  }
+  const waiting = list.reduce((n, r) => n + (Array.isArray(r.b) ? r.b.filter(x => x.w && x.r === null).length : 0), 0);
+  status.textContent = list.length + (list.length === 1 ? ' student has' : ' students have') + ' submitted so far. This page updates automatically.' +
+    (waiting ? ' ✍️ ' + waiting + (waiting === 1 ? ' written answer is' : ' written answers are') + ' waiting for you to mark.' : '');
+  const ordered = list.slice().reverse();
+  grid.innerHTML = ordered.map(miniResultCard).join('');
+}
+
+function miniResultCard(res) {
+  const b = Array.isArray(res.b) ? res.b : [];
+  const pending = b.filter(x => x.w && x.r === null).length;
+  const pct = Math.round((res.s / res.t) * 100);
+  const grade = pending ? 'So far' : gradeFor(pct);
+  const canMark = !!res.sid && !liveViewOnly && !!liveTeacherKey();
+  let time = '';
+  try { time = res.ts ? new Date(res.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; } catch (e) {}
+
+  const rows = b.map((row, i) => `
+    <div class="mini-row">
+      <span dir="auto">Q${i+1}: ${esc(row.q)}</span>
+      ${row.r === null ? '<span class="pending-tag" style="margin-left:0;">⏳</span>' : `<span class="${row.r?'correct-tag':'wrong-tag'}">${row.r?'✓':'✗'}</span>`}
+    </div>`).join('');
+
+  // Written answers: the teacher reads each one and taps Correct or Wrong
+  const written = b.map((row, i) => ({ row, i })).filter(x => x.row.w);
+  let wrBox = '';
+  if (written.length) {
+    wrBox = '<div class="wr-box"><div class="wr-title">✍️ Written answers</div>' + written.map(({ row, i }) => {
+      const has = typeof row.a === 'string' && row.a !== '';
+      const answerHtml = has
+        ? `<div class="wr-a" dir="auto">${esc(row.a)}</div>`
+        : (row.r === false && (row.a === '' ) ? '<div class="wr-a none">No answer</div>' : '<div class="wr-a none">Answer hidden (open Live Results from the page where you saved the quiz to mark it)</div>');
+      let controls = '';
+      if (row.r === false && row.a === '') {
+        controls = '<div class="wr-state no">✗ Wrong — no answer</div>';
+      } else if (canMark && has) {
+        controls = `<div class="wr-btns">
+          <button class="wr-btn ok ${row.r === true ? 'on' : ''}" onclick="gradeWritten('${esc(res.sid)}',${i},true)">✓ Correct</button>
+          <button class="wr-btn no ${row.r === false ? 'on' : ''}" onclick="gradeWritten('${esc(res.sid)}',${i},false)">✗ Wrong</button>
+        </div>`;
+      } else {
+        controls = row.r === true ? '<div class="wr-state ok">✓ Correct</div>'
+          : row.r === false ? '<div class="wr-state no">✗ Wrong</div>'
+          : '<div class="wr-state">⏳ Waiting for the teacher</div>';
+      }
+      return `<div class="wr-item"><div class="wr-q" dir="auto">Q${i+1}: ${esc(row.q)}</div>${answerHtml}${controls}</div>`;
+    }).join('') + '</div>';
+  }
+
+  return `
+    <div class="mini-card${pending ? ' needs-mark' : ''}">
+      <div class="mini-name" dir="auto">${esc(res.n)}</div>
+      <div class="mini-time">${time}</div>
+      <div class="mini-score">${res.s}/${res.t}</div>
+      <div class="mini-grade">${grade} · ${pct}%</div>
+      ${pending ? `<div class="mini-pending">⏳ ${pending} to mark</div>` : ''}
+      ${wrBox}
+      <div class="mini-breakdown">${rows}</div>
+    </div>`;
+}
+
+// Teacher taps Correct / Wrong. The card updates at once; the mark is then saved on the server
+// (one at a time, so quick taps never overwrite each other). Tapping the same button again clears the mark.
+function gradeWritten(sid, i, r) {
+  const e = liveList.find(x => x.sid === sid);
+  const row = e && e.b && e.b[i];
+  if (!row || !row.w) return;
+  const next = (row.r === r) ? null : r;
+  row.r = next;
+  e.s = e.b.filter(x => x.r === true).length;
+  renderLiveResults(liveList);
+  gradeBusy++;
+  gradeQueue = gradeQueue.then(async () => {
+    try {
+      const resp = await fetch(SHORT_API + '/grade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: liveQuizId, tk: liveTeacherKey(), sid: sid, i: i, r: next })
+      });
+      if (!resp.ok) throw new Error('rejected');
+      showMsg('', 'liveMsg');
+    } catch (err) {
+      showMsg('Could not save that mark. Check your connection — the page will show what is really saved in a moment.', 'liveMsg');
+    }
+    gradeBusy--;
+    lastGradeDoneAt = Date.now();
+  });
+}
+
+// ── PULL-TO-REFRESH ────────────────────────────────────
+(function () {
+  const TRIGGER = 90;
+  let startY = null, pull = 0;
+
+  function getPtr() {
+    let p = document.getElementById('ptr');
+    if (!p) {
+      p = document.createElement('div');
+      p.id = 'ptr';
+      p.textContent = '↻';
+      document.body.appendChild(p);
+    }
+    return p;
+  }
+
+  function hidePtr() {
+    const p = document.getElementById('ptr');
+    if (!p) return;
+    p.classList.remove('spin');
+    p.style.transition = 'transform 0.2s, opacity 0.2s';
+    p.style.opacity = '0';
+    p.style.transform = 'translateY(-60px)';
+    p.style.borderColor = '';
+  }
+
+  document.addEventListener('touchstart', function (e) {
+    const onHeader = e.target && e.target.closest && e.target.closest('.site-header');
+    if (!onHeader || e.touches.length !== 1) { startY = null; return; }
+    startY = e.touches[0].clientY;
+    pull = 0;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function (e) {
+    if (startY === null) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) { pull = 0; hidePtr(); return; }
+    pull = Math.min(dy * 0.6, 130);
+    const p = getPtr();
+    p.classList.remove('spin');
+    p.style.transition = 'none';
+    p.style.opacity = String(Math.min(1, pull / 40));
+    p.style.transform = 'translateY(' + (pull - 60) + 'px) rotate(' + Math.round(pull * 3) + 'deg)';
+    p.style.borderColor = pull >= TRIGGER ? 'var(--correct)' : '';
+  }, { passive: true });
+
+  function release(cancelled) {
+    if (startY === null) return;
+    startY = null;
+    if (cancelled || pull < TRIGGER) { pull = 0; hidePtr(); return; }
+    pull = 0;
+    if (Array.isArray(questions) && questions.length > 0 &&
+        !confirm('Refresh the page? The quiz you are building has not been saved and will be lost.')) {
+      hidePtr();
+      return;
+    }
+    const p = getPtr();
+    p.style.transition = 'none';
+    p.style.opacity = '1';
+    p.style.borderColor = '';
+    p.classList.add('spin');
+    setTimeout(function () { location.reload(); }, 250);
+  }
+
+  document.addEventListener('touchend', function () { release(false); }, { passive: true });
+  document.addEventListener('touchcancel', function () { release(true); }, { passive: true });
 })();
+
+// ── START ──────────────────────────────────────────────
+try {
+  history.pushState(null, '', location.href);
+  window.addEventListener('popstate', () => {
+    try { history.pushState(null, '', location.href); } catch (e) {}
+  });
+} catch (e) {}
+
+(async () => {
+const liveMatch = location.hash.match(/^#live=([a-z0-9]{4,20})(?:\.([a-f0-9]{32}))?$/i);
+if (liveMatch) {
+  if (liveMatch[2]) {
+    liveTkMem = liveMatch[2].toLowerCase();
+    try { localStorage.setItem('qb_tk:' + liveMatch[1], liveTkMem); } catch (e) {}
+    try { history.replaceState(null, '', location.pathname + location.search + '#live=' + liveMatch[1]); } catch (e) {}
+  }
+  startLiveResults(liveMatch[1]);
+  return;
+}
+const shared = await loadSharedQuiz();
+if (shared) {
+  quizData = shared.quiz.questions;
+  quizId = shared.quiz.id || ('h' + hashStr(JSON.stringify(shared.quiz.questions)));
+  quizTime = shared.quiz.t || 0;
+  quizHideFlash = !!shared.quiz.hf;
+  quizShuffle = shared.quiz.sh !== false;
+  initQueue();
+  show('taker');
+  let saved = loadProgress();
+  if (saved && saved.k === 1 && await wasReset(saved.n)) {
+    try { localStorage.removeItem(progressKey()); } catch (e) {}
+    saved = null;
+  }
+  if (saved) {
+    restored = true;
+    claimedOnServer = saved.k === 1;
+    mySid = (typeof saved.i === 'string' && /^[a-z0-9]{4,12}$/.test(saved.i)) ? saved.i : '';
+    takerName = saved.n;
+    takerStarted = true;
+    timerStart = (typeof saved.s === 'number' && saved.s > 0) ? saved.s : Date.now();
+    initQueue();
+    fullOrder = isPerm(saved.f, quizData.length) ? saved.f.slice() : quizData.map((_, i) => i);
+    perms = quizData.map((q, i) => {
+      if (q.type === 'mc') return (Array.isArray(saved.p) && isPerm(saved.p[i], 4)) ? saved.p[i].slice() : [0, 1, 2, 3];
+      if (q.type === 'cc') return (Array.isArray(saved.p) && isPerm(saved.p[i], q.choices.length)) ? saved.p[i].slice() : q.choices.map((_, j) => j);
+      return null;
+    });
+    quizData.forEach((q, i) => {
+      const given = saved.g[i];
+      if (typeof given === 'string' && q.type === 'wr') {
+        // Written: empty = time ran out with no answer; otherwise wait for the teacher (the poll fills the mark in)
+        answerMap[i] = { question: q.text, given: given, correct: '', right: given === '' ? false : null, written: true, noAns: given === '' };
+      } else if (typeof given === 'string') {
+        // CC: given is a comma-separated string of original indices
+        const correct = q.type === 'cc' ? (q.answers || []).slice().sort((a,b)=>a-b).join(',') : q.answer;
+        const right = q.type === 'cc'
+          ? given === correct
+          : given === q.answer;
+        answerMap[i] = { question: q.text, given: given, correct: correct, right: right };
+      }
+    });
+    const remaining = quizData.map((_, i) => i).filter(i => !answerMap[i]);
+    let order = Array.isArray(saved.o) ? saved.o.filter(i => Number.isInteger(i) && remaining.includes(i)) : [];
+    remaining.forEach(i => { if (!order.includes(i)) order.push(i); });
+    queue = order;
+    if (queue.length === 0) {
+      takerAnswers = answerMap.slice();
+      quizLocked = true;
+      resultSubmitted = saved.r === true;
+      renderResult();
+    } else if (quizTime && Date.now() - timerStart >= quizTime * 1000) {
+      timeUp();
+    } else {
+      renderTakerQ();
+      startTimerTick();
+    }
+  } else {
+    renderTakerName();
+  }
+  if (shared.source === 'page') detectTeacher();
+}
+})();
+</script>
+</body>
+</html>
