@@ -769,7 +769,7 @@ function decodeQuiz(s) {
 // Link server (Cloudflare Worker) that turns a quiz into a short code like  #s=k8f3x2
 const SHORT_API = 'https://purple-art-a864.recachiastudios.workers.dev';
 
-const PAGE_VERSION = 'v6';
+const PAGE_VERSION = 'v7';
 let linkWhy = [];   // reasons a link could not be shortened (shown to the teacher)
 
 async function serverSave(data) {
@@ -1564,11 +1564,13 @@ async function deviceInfo() {
   try {
     const ua = navigator.userAgent || '';
     const platform = /iPhone|iPad|iPod/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : 'Other';
-    const w = Math.min(screen.width, screen.height), h = Math.max(screen.width, screen.height);
-    const dpr = Math.round((window.devicePixelRatio || 1) * 100) / 100;
+    // Real screen size in physical pixels (CSS size x pixel density). Browser zoom changes both numbers
+    // but not the result, so Chrome, Firefox, Edge, etc. on one device give the same value.
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.round(Math.min(screen.width, screen.height) * dpr / 20) * 20;
+    const h = Math.round(Math.max(screen.width, screen.height) * dpr / 20) * 20;
     let tz = '';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
-    const lang = (navigator.language || '').slice(0, 2).toLowerCase();
     let model = '';
     try {
       if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
@@ -1576,7 +1578,7 @@ async function deviceInfo() {
         model = (v && v.model) ? String(v.model).slice(0, 40) : '';
       }
     } catch (e) {}
-    const src = [platform, w + 'x' + h, dpr, tz, lang].join('|');
+    const src = [platform, w + 'x' + h, tz].join('|');
     return { sig: hashStr(src) + hashStr(src.split('').reverse().join('')), label: platform + (model ? ' ' + model : '') + ' · ' + w + '×' + h };
   } catch (e) {
     return { sig: '', label: '' };
