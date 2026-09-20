@@ -555,6 +555,7 @@ const BODY_HTML = `
   <div class="brand">© Youssef Hisham 2026</div>
   <h1>Live Results</h1>
   <p class="subtitle" id="liveStatus">Waiting for students to finish…</p>
+  <div class="info-box" id="liveFlags" style="display:none;"></div>
   <div class="live-grid" id="liveGrid"></div>
 </div>
 
@@ -768,7 +769,7 @@ function decodeQuiz(s) {
 // Link server (Cloudflare Worker) that turns a quiz into a short code like  #s=k8f3x2
 const SHORT_API = 'https://purple-art-a864.recachiastudios.workers.dev';
 
-const PAGE_VERSION = 'v5';
+const PAGE_VERSION = 'v6';
 let linkWhy = [];   // reasons a link could not be shortened (shown to the teacher)
 
 async function serverSave(data) {
@@ -1556,16 +1557,43 @@ function renderTakerName() {
 // or cleared data used to give a fresh attempt. Now, when a student taps Start Quiz, the
 // server records "this name started this quiz". A second start with the same name is
 // refused, on any device or browser. The teacher's preview never asks the server.
+// A rough "which phone is this" signature. It is only used to WARN the teacher, never to block:
+// phone type, screen size, pixel density, time zone and language. It is the same in every browser on
+// one phone (and in incognito), which is why it catches "same phone, different name".
+async function deviceInfo() {
+  try {
+    const ua = navigator.userAgent || '';
+    const platform = /iPhone|iPad|iPod/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : 'Other';
+    const w = Math.min(screen.width, screen.height), h = Math.max(screen.width, screen.height);
+    const dpr = Math.round((window.devicePixelRatio || 1) * 100) / 100;
+    let tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+    const lang = (navigator.language || '').slice(0, 2).toLowerCase();
+    let model = '';
+    try {
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        const v = await navigator.userAgentData.getHighEntropyValues(['model']);
+        model = (v && v.model) ? String(v.model).slice(0, 40) : '';
+      }
+    } catch (e) {}
+    const src = [platform, w + 'x' + h, dpr, tz, lang].join('|');
+    return { sig: hashStr(src) + hashStr(src.split('').reverse().join('')), label: platform + (model ? ' ' + model : '') + ' · ' + w + '×' + h };
+  } catch (e) {
+    return { sig: '', label: '' };
+  }
+}
+
 async function claimAttempt(name) {
   if (previewMode || !quizId || !SHORT_API) return { ok: true };
   if (!attemptToken) attemptToken = newQuizId() + newQuizId();
+  const dev = await deviceInfo();
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 8000);
     const r = await fetch(SHORT_API + '/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: quizId, name: name, token: attemptToken }),
+      body: JSON.stringify({ id: quizId, name: name, token: attemptToken, sig: dev.sig, label: dev.label }),
       signal: ctl.signal
     });
     clearTimeout(timer);
@@ -1839,11 +1867,22 @@ async function pollLiveResults() {
     const r = await fetch(SHORT_API + '/results?id=' + encodeURIComponent(liveQuizId));
     if (!r.ok) return;
     const d = await r.json();
-    if (d && Array.isArray(d.results)) renderLiveResults(d.results);
+    if (d && Array.isArray(d.results)) renderLiveResults(d.results, d.flags);
   } catch (e) {}
 }
 
-function renderLiveResults(list) {
+// Warning box: a different name started on what looks like the same phone as an earlier student.
+function renderLiveFlags(flags) {
+  const box = document.getElementById('liveFlags');
+  if (!box) return;
+  if (!Array.isArray(flags) || !flags.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'block';
+  box.innerHTML = '<strong>⚠️ Possible retakes</strong> — worth a look:' + flags.slice().reverse().map(f => `
+    <div style="margin-top:8px;"><strong dir="auto">${esc(f.n)}</strong> started on what looks like the same phone as <strong dir="auto">${esc((Array.isArray(f.of) ? f.of : []).join(', '))}</strong>${f.ip ? ' (same network too)' : ''}${f.d ? ' · ' + esc(f.d) : ''}</div>`).join('');
+}
+
+function renderLiveResults(list, flags) {
+  renderLiveFlags(flags);
   const grid = document.getElementById('liveGrid');
   const status = document.getElementById('liveStatus');
   if (!grid || !status) return;
