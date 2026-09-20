@@ -650,6 +650,7 @@ let hideFlash = true;         // maker: hide the green / red flash after a stude
 let quizHideFlash = true;     // taker: the quiz being taken hides the flash (safe default)
 let shuffleOn = true;         // maker: shuffle question order and answer order for each student
 let quizShuffle = true;       // taker: the quiz being taken is shuffled
+let attemptToken = '';        // taker: random id for this page load, lets the server accept a retry of the same Start tap
 
 // ── HELPERS ────────────────────────────────────────────
 function show(id) {
@@ -767,7 +768,7 @@ function decodeQuiz(s) {
 // Link server (Cloudflare Worker) that turns a quiz into a short code like  #s=k8f3x2
 const SHORT_API = 'https://purple-art-a864.recachiastudios.workers.dev';
 
-const PAGE_VERSION = 'v4';
+const PAGE_VERSION = 'v5';
 let linkWhy = [];   // reasons a link could not be shortened (shown to the teacher)
 
 async function serverSave(data) {
@@ -1545,13 +1546,54 @@ function renderTakerName() {
       <label>Your Name</label>
       <input type="text" dir="auto" id="studentName" placeholder="e.g. Ahmed Mohamed" maxlength="60">
     </div>
-    <button class="btn" onclick="beginQuiz()">Start Quiz →</button>
+    <button class="btn" id="startBtn" onclick="beginQuiz()">Start Quiz →</button>
+    <div class="msg" id="startMsg"></div>
     ${previewMode ? '<div style="margin-top:20px;"><button class="btn btn-outline" onclick="exitPreview()">Exit preview</button></div>' : ''}`;
 }
 
-function beginQuiz() {
-  const n = document.getElementById('studentName').value.trim();
-  if (!n) { document.getElementById('studentName').style.borderColor='#b83232'; return; }
+// ── ONE ATTEMPT PER STUDENT (checked on the server) ────
+// The browser can only remember progress on its own device, so a new browser, incognito
+// or cleared data used to give a fresh attempt. Now, when a student taps Start Quiz, the
+// server records "this name started this quiz". A second start with the same name is
+// refused, on any device or browser. The teacher's preview never asks the server.
+async function claimAttempt(name) {
+  if (previewMode || !quizId || !SHORT_API) return { ok: true };
+  if (!attemptToken) attemptToken = newQuizId() + newQuizId();
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(SHORT_API + '/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: quizId, name: name, token: attemptToken }),
+      signal: ctl.signal
+    });
+    clearTimeout(timer);
+    if (r.status === 409) return { ok: false, reason: 'taken' };
+    if (r.status === 404 || r.status === 405) return { ok: true };   // server not updated yet: don't block anyone
+    if (!r.ok) return { ok: false, reason: 'server' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: 'network' };
+  }
+}
+
+async function beginQuiz() {
+  const nameEl = document.getElementById('studentName');
+  const btn = document.getElementById('startBtn');
+  if (btn && btn.disabled) return;
+  const n = nameEl.value.trim();
+  if (!n) { nameEl.style.borderColor='#b83232'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  showMsg('', 'startMsg');
+  const claim = await claimAttempt(n);
+  if (!claim.ok) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Start Quiz →'; }
+    showMsg(claim.reason === 'taken'
+      ? 'This name has already started this quiz, so it can’t be taken again. If this is a mistake (for example your phone switched off), tell your teacher.'
+      : 'Could not reach the server. Check your internet connection and tap Start Quiz again.', 'startMsg');
+    return;
+  }
   takerName = n;
   takerStarted = true;
   timerStart = Date.now();
