@@ -18,23 +18,114 @@
     --wrong: #b83232;
     --radius: 12px;
     --font: 'Segoe UI', system-ui, sans-serif;
+    --card-bg: #ffffff;
+    --text-soft: #444;
+    --text-softer: #555;
+    --transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    --btn-bg: #1a1a1a;
+    --btn-fg: #ffffff;
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121212;
+    --surface: #1c1c1c;
+    --border: #333331;
+    --text: #f0f0ee;
+    --muted: #9a9a97;
+    --accent: #f0f0ee;
+    --correct: #4caf7d;
+    --wrong: #e07070;
+    --card-bg: #1a1a1a;
+    --text-soft: #d8d8d6;
+    --text-softer: #c4c4c1;
+    --btn-bg: #f0f0ee;
+    --btn-fg: #121212;
+  }
+
+  body, .card, input, textarea, .btn, .answer-option, .tf-btn, .type-toggle button, .timer-pill {
+    transition: var(--transition);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+  html, body { overscroll-behavior-y: none; }
+
+  /* ── scrollbar ── */
+  * {
+    scrollbar-width: thin;                       /* Firefox */
+    scrollbar-color: var(--border) transparent;  /* Firefox */
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 999px;
+    border: 2px solid var(--bg);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #bbb; background-clip: padding-box; }
+  ::-webkit-scrollbar-corner { background: transparent; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;   /* the page itself never scrolls */
+  }
 
   body {
     font-family: var(--font);
     background: var(--bg);
     color: var(--text);
-    min-height: 100vh;
+  }
+
+  .scroll-area {
+    position: fixed;
+    top: 64px;      /* header height */
+    bottom: 0;
+    left: 0; right: 0;
+    overflow-y: auto;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 24px;
   }
 
+  .site-header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 64px;
+    background: #14141a;   /* always dark, regardless of theme */
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 24px;
+    z-index: 100;
+  }
+
+  .site-logo { height: 32px; width: 32px; object-fit: contain; border-radius: 6px; flex-shrink: 0; }
+  .site-title { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
+
+  .theme-toggle {
+    margin-left: auto;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #fff;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .theme-toggle:hover { background: rgba(255,255,255,0.18); }
+
   .card {
-    background: #fff;
+    background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 40px;
@@ -87,7 +178,7 @@
     font-size: 13px;
     font-weight: 500;
     margin-bottom: 6px;
-    color: #444;
+    color: var(--text-soft);
   }
 
   input[type="text"], input[type="number"], textarea {
@@ -97,7 +188,7 @@
     border-radius: 8px;
     font-size: 15px;
     font-family: var(--font);
-    background: var(--bg);
+    background: var(--card-bg);
     color: var(--text);
     outline: none;
     transition: border-color 0.2s;
@@ -111,8 +202,8 @@
   .btn {
     display: inline-block;
     padding: 12px 28px;
-    background: var(--text);
-    color: #fff;
+    background: var(--btn-bg);
+    color: var(--btn-fg);
     border: none;
     border-radius: 8px;
     font-size: 15px;
@@ -144,7 +235,7 @@
     padding: 14px;
     border: 2px solid var(--border);
     border-radius: 8px;
-    background: var(--bg);
+    background: var(--card-bg);
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
@@ -156,9 +247,9 @@
   .tf-btn:hover { border-color: #bbb; }
 
   .tf-btn.selected {
-    border-color: var(--text);
-    background: var(--text);
-    color: #fff;
+    border-color: var(--btn-bg);
+    background: var(--btn-bg);
+    color: var(--btn-fg);
   }
 
   .tf-btn.correct { border-color: var(--correct); background: var(--correct); color: #fff; }
@@ -174,12 +265,12 @@
     margin-bottom: 10px;
     cursor: pointer;
     transition: all 0.15s;
-    background: var(--bg);
+    background: var(--card-bg);
     font-size: 15px;
   }
 
   .answer-option:hover { border-color: #bbb; }
-  .answer-option.selected { border-color: var(--text); background: var(--text); color: #fff; }
+  .answer-option.selected { border-color: var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); }
   .answer-option.correct { border-color: var(--correct); background: var(--correct); color: #fff; }
   .answer-option.wrong { border-color: var(--wrong); background: var(--wrong); color: #fff; }
 
@@ -272,14 +363,15 @@
     border-radius: 8px;
     padding: 16px;
     font-size: 13px;
-    color: #555;
+    color: var(--text-softer);
     margin-bottom: 24px;
     line-height: 1.6;
   }
 
   .preset-title { font-weight: 700; font-size: 15px; }
   .preset-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
-  .answer-option.selected .preset-desc { color: #ccc; }
+  .answer-option.selected .preset-desc { color: inherit; opacity: 0.75; }
+  .answer-option.selected .preset-title { color: inherit; }
 
   .plan-list { margin-bottom: 8px; }
   .plan-row {
@@ -298,7 +390,7 @@
     padding: 6px 12px;
     border: 2px solid var(--border);
     border-radius: 8px;
-    background: var(--bg);
+    background: var(--card-bg);
     color: var(--text);
     font-size: 12px;
     font-weight: 600;
@@ -308,7 +400,7 @@
     white-space: nowrap;
   }
   .type-toggle button:hover { border-color: #bbb; }
-  .type-toggle button.selected { border-color: var(--text); background: var(--text); color: #fff; }
+  .type-toggle button.selected { border-color: var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); }
   .plan-remove {
     border: none;
     background: transparent;
@@ -378,6 +470,7 @@
   .mini-breakdown {
     border-top: 1px solid var(--border);
     padding-top: 8px;
+    padding-right: 4px;
     margin-top: 4px;
     max-height: 170px;
     overflow-y: auto;
@@ -395,6 +488,15 @@ const PAGE_TITLE = 'Quiz Builder — Youssef Hisham';
 // The three screens live here (not in the HTML) so this page can rebuild
 // its own source when the teacher saves a quiz.
 const BODY_HTML = `
+<!-- SITE HEADER -->
+<header class="site-header">
+  <img class="site-logo" src="QLogo.png" alt="Quiz Builder logo">
+  <span class="site-title">Quiz Builder</span>
+  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
+</header>
+
+<div class="scroll-area" id="scrollArea">
+
 <!-- HOME -->
 <div class="card" id="home">
   <div class="brand">© Youssef Hisham 2026</div>
@@ -427,8 +529,36 @@ const BODY_HTML = `
   <p class="subtitle" id="liveStatus">Waiting for students to finish…</p>
   <div class="live-grid" id="liveGrid"></div>
 </div>
+
+</div>
+
 `;
 document.body.insertAdjacentHTML('afterbegin', BODY_HTML);
+initTheme();
+
+// ── DARK MODE ──────────────────────────────────────────
+// Remembers the choice on this device. Defaults to the browser/OS preference
+// the first time, then whatever the person picked with the header button.
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('qb-theme', theme); } catch (e) {}
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem('qb-theme'); } catch (e) {}
+  if (saved !== 'dark' && saved !== 'light') {
+    saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  applyTheme(saved);
+}
 
 // ── STATE ──────────────────────────────────────────────
 let quizData = null;       // the quiz students take
@@ -458,9 +588,11 @@ function presetPlan(id) {
 // 0=question text, 1=A, 2=B, 3=C, 4=D, 5=answer
 // TF sub-steps: 0=question text, 1=answer
 let subStep = 0;
-let qIndex = 0;   // 0-4 = MC, 5-9 = TF
+let qIndex = 0;
 let tfAnswer = null;
 let mcAnswer = null;
+let editMode = false;    // true when editing an existing question
+let editIndex = -1;      // which question is being edited
 
 // Taker state
 let takerName = '';
@@ -808,9 +940,31 @@ function removeCustom(i) {
 function customBack() { makerStage = 'setup'; renderMakerStep(); }
 function customNext() { beginQuestions(customPlan); }
 
+function renderEditList() {
+  setProgress(100);
+  const rows = questions.map((q, i) => {
+    const typeTag = q.type === 'mc' ? 'MC' : 'T/F';
+    const preview = q.text.length > 50 ? q.text.slice(0, 50) + '…' : q.text;
+    return `
+      <div class="plan-row" style="cursor:pointer;" onclick="startEditQuestion(${i})">
+        <span class="plan-num">Q${i+1} <span style="color:var(--muted);font-size:11px;font-weight:400;">${typeTag}</span></span>
+        <span dir="auto" style="flex:1;font-size:13px;color:var(--text-softer);padding:0 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(preview)}</span>
+        <span style="font-size:13px;color:var(--muted);">Edit →</span>
+      </div>`;
+  }).join('');
+  document.getElementById('makerContent').innerHTML = `
+    <h2>Edit Questions</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Tap a question to edit it.</p>
+    <div class="plan-list">${rows}</div>
+    <div style="margin-top:24px;">
+      <button class="btn btn-outline" onclick="makerStage='questions';qIndex=plan.length;editMode=false;editIndex=-1;renderMakerStep();">← Back to Generate</button>
+    </div>`;
+}
+
 function renderMakerStep() {
-  if (makerStage === 'setup')  { renderSetup();  return; }
-  if (makerStage === 'custom') { renderCustom(); return; }
+  if (makerStage === 'setup')    { renderSetup();    return; }
+  if (makerStage === 'custom')   { renderCustom();   return; }
+  if (makerStage === 'editlist') { renderEditList(); return; }
 
   const isMC = qIndex < plan.length && plan[qIndex] === 'mc';
   const isTF = qIndex < plan.length && plan[qIndex] === 'tf';
@@ -824,62 +978,70 @@ function renderMakerStep() {
 
   if (isMC) {
     if (subStep === 0) {
+      const prefill = editMode ? esc(currentQ.text || '') : (currentQ.text ? esc(currentQ.text) : '');
       html = `
-        <div class="q-counter">Multiple Choice — Question ${qNum} of ${plan.length}</div>
-        <h2>Question ${qNum}</h2>
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Multiple Choice'} — Question ${qNum} of ${plan.length}</div>
+        <h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>
         <label>Type the question</label>
-        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. What is the capital of Egypt?"></textarea>
+        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. What is the capital of Egypt?">${prefill}</textarea>
         <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
           <button class="btn" onclick="mcNext()">Next →</button>
         </div>`;
     } else if (subStep >= 1 && subStep <= 4) {
       const letter = ['A','B','C','D'][subStep-1];
+      const prefillChoice = (currentQ.choices && currentQ.choices[subStep-1]) ? esc(currentQ.choices[subStep-1]) : '';
       html = `
-        <div class="q-counter">Multiple Choice — Question ${qNum} of ${plan.length}</div>
-        <h2>Question ${qNum}</h2>
-        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:#444;">${esc(currentQ.text)}</p>
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Multiple Choice'} — Question ${qNum} of ${plan.length}</div>
+        <h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
         <label>Option ${letter}</label>
-        <input type="text" dir="auto" id="inp" placeholder="Type option ${letter}…">
+        <input type="text" dir="auto" id="inp" placeholder="Type option ${letter}…" value="${prefillChoice}">
         <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
           <button class="btn" onclick="mcNext()">Next →</button>
         </div>`;
     } else if (subStep === 5) {
       html = `
-        <div class="q-counter">Multiple Choice — Question ${qNum} of ${plan.length}</div>
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'Multiple Choice'} — Question ${qNum} of ${plan.length}</div>
         <h2>Correct Answer?</h2>
-        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:#444;">${esc(currentQ.text)}</p>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
         ${['A','B','C','D'].map((l,i) => `
           <div class="answer-option ${mcAnswer===l?'selected':''}" onclick="selectMCAnswer('${l}')">
             <span class="option-label">${l}</span>
             <span dir="auto">${esc(currentQ.choices[i])}</span>
           </div>`).join('')}
         <div style="margin-top:24px;">
-          <button class="btn" onclick="mcFinish()">Save Question →</button>
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="mcFinish()">${editMode ? 'Complete ✓' : 'Save Question →'}</button>
         </div>
         <div class="msg" id="msg"></div>`;
     }
   } else if (isTF) {
     const tfNum = qNum;
     if (subStep === 0) {
+      const prefillTF = editMode ? esc(currentQ.text || '') : (currentQ.text ? esc(currentQ.text) : '');
       html = `
-        <div class="q-counter">True / False — Question ${tfNum} of ${plan.length}</div>
-        <h2>Question ${tfNum}</h2>
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'True / False'} — Question ${tfNum} of ${plan.length}</div>
+        <h2>${editMode ? 'Edit Question' : 'Question'} ${tfNum}</h2>
         <label>Type the statement</label>
-        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. The internet is a type of Recording Media."></textarea>
+        <textarea id="inp" dir="auto" rows="3" placeholder="e.g. The internet is a type of Recording Media.">${prefillTF}</textarea>
         <div style="margin-top:24px;">
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
           <button class="btn" onclick="tfNext()">Next →</button>
         </div>`;
     } else if (subStep === 1) {
       html = `
-        <div class="q-counter">True / False — Question ${tfNum} of ${plan.length}</div>
+        <div class="q-counter">${editMode ? '✏️ Editing' : 'True / False'} — Question ${tfNum} of ${plan.length}</div>
         <h2>Correct Answer?</h2>
-        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:#444;">${esc(currentQ.text)}</p>
+        <p dir="auto" style="margin-bottom:20px;font-size:15px;color:var(--text-soft);">${esc(currentQ.text)}</p>
         <div class="tf-options">
           <button class="tf-btn ${tfAnswer==='True'?'selected':''}" onclick="selectTF('True')">True</button>
           <button class="tf-btn ${tfAnswer==='False'?'selected':''}" onclick="selectTF('False')">False</button>
         </div>
         <div style="margin-top:24px;">
-          <button class="btn" onclick="tfFinish()">Save Question →</button>
+          <button class="btn btn-outline" onclick="makerBack()">← Back</button>
+          <button class="btn" onclick="tfFinish()">${editMode ? 'Complete ✓' : 'Save Question →'}</button>
         </div>
         <div class="msg" id="msg"></div>`;
     }
@@ -922,10 +1084,11 @@ function renderMakerStep() {
         </div>
         <div class="time-hint">When ticked, every student gets the questions in a different random order, and the choices of each multiple-choice question are mixed up. The right answer stays the one you picked.</div>
       </div>
-      <button class="btn" id="saveBtn" onclick="saveQuiz()">Save Quiz &amp; Get Link →</button>
-      <div style="margin-top:12px;">
-        <button class="btn btn-outline" onclick="activateTaker()">Try it as a student</button>
-        <button class="btn btn-outline" onclick="startMaker()">Rebuild Quiz</button>
+      <button class="btn" id="saveBtn" onclick="saveQuiz()" style="width:100%;">Save Quiz &amp; Get Link →</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
+        <button class="btn btn-outline" style="margin:0;" onclick="openEditList()">Edit Questions</button>
+        <button class="btn btn-outline" style="margin:0;" onclick="activateTaker()">Try it as a student</button>
+        <button class="btn btn-outline" style="margin:0;grid-column:1/-1;" onclick="startMaker()">Rebuild Quiz</button>
       </div>
       <div class="msg" id="msg"></div>`;
     setProgress(100);
@@ -965,12 +1128,24 @@ function mcNext() {
   if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
 
   if (subStep === 0) {
-    currentQ = { type:'mc', text: val, choices: [], answer: '' };
+    if (editMode) {
+      currentQ.text = val;
+      // Keep existing choices and answer for edit mode
+      if (!currentQ.choices) currentQ.choices = [];
+    } else {
+      currentQ = { type:'mc', text: val, choices: [], answer: '' };
+    }
   } else {
-    currentQ.choices.push(val);
+    // subStep 1-4: setting choices
+    const idx = subStep - 1;
+    if (!currentQ.choices) currentQ.choices = [];
+    currentQ.choices[idx] = val;
   }
   subStep++;
-  mcAnswer = null;
+  if (subStep < 5) {
+    // Only reset mcAnswer when we're NOT in edit mode (so existing answer stays highlighted)
+    if (!editMode) mcAnswer = null;
+  }
   renderMakerStep();
 }
 
@@ -982,6 +1157,15 @@ function selectMCAnswer(l) {
 function mcFinish() {
   if (!mcAnswer) { showMsg('Please select the correct answer.'); return; }
   currentQ.answer = mcAnswer;
+  if (editMode) {
+    questions[editIndex] = { ...currentQ };
+    editMode = false;
+    editIndex = -1;
+    currentQ = {};
+    mcAnswer = null;
+    openEditList();
+    return;
+  }
   questions.push({...currentQ});
   qIndex++;
   subStep = 0;
@@ -994,8 +1178,13 @@ function tfNext() {
   const inp = document.getElementById('inp');
   const val = inp ? inp.value.trim() : '';
   if (!val) { if (inp) inp.style.borderColor='#b83232'; return; }
-  currentQ = { type:'tf', text: val, answer: '' };
-  tfAnswer = null;
+  if (editMode) {
+    currentQ.text = val;
+    // Keep existing tfAnswer so the current selection stays highlighted
+  } else {
+    currentQ = { type:'tf', text: val, answer: '' };
+    tfAnswer = null;
+  }
   subStep = 1;
   renderMakerStep();
 }
@@ -1008,11 +1197,84 @@ function selectTF(v) {
 function tfFinish() {
   if (!tfAnswer) { showMsg('Please select True or False.'); return; }
   currentQ.answer = tfAnswer;
+  if (editMode) {
+    questions[editIndex] = { ...currentQ };
+    editMode = false;
+    editIndex = -1;
+    currentQ = {};
+    tfAnswer = null;
+    openEditList();
+    return;
+  }
   questions.push({...currentQ});
   qIndex++;
   subStep = 0;
   currentQ = {};
   tfAnswer = null;
+  renderMakerStep();
+}
+
+// ── MAKER: BACK navigation ─────────────────────────────
+function makerBack() {
+  if (editMode) {
+    if (subStep > 0) {
+      subStep--;
+      renderMakerStep();
+    } else {
+      // subStep === 0 in edit mode → back to edit list
+      editMode = false;
+      editIndex = -1;
+      currentQ = {};
+      mcAnswer = null;
+      tfAnswer = null;
+      openEditList();
+    }
+    return;
+  }
+
+  if (subStep > 0) {
+    subStep--;
+    renderMakerStep();
+  } else if (qIndex > 0) {
+    // Go back to previous question — restore it from questions[]
+    qIndex--;
+    const prev = questions[qIndex];
+    questions.splice(qIndex, 1);   // pull it out so it can be re-entered
+    currentQ = { ...prev, choices: prev.choices ? [...prev.choices] : [] };
+    if (prev.type === 'mc') {
+      subStep = 5;                 // land on answer-selection step
+      mcAnswer = prev.answer || null;
+    } else {
+      subStep = 1;                 // land on True/False answer step
+      tfAnswer = prev.answer || null;
+    }
+    renderMakerStep();
+  } else {
+    // First question, subStep 0 → back to setup / custom
+    makerStage = presetChoice === 'custom' ? 'custom' : 'setup';
+    renderMakerStep();
+  }
+}
+
+// ── MAKER: edit question list ───────────────────────────
+function openEditList() {
+  makerStage = 'editlist';
+  renderMakerStep();
+}
+
+function startEditQuestion(i) {
+  editMode = true;
+  editIndex = i;
+  qIndex = i;
+  const q = questions[i];
+  currentQ = { ...q, choices: q.choices ? [...q.choices] : [] };
+  subStep = 0;
+  if (q.type === 'mc') {
+    mcAnswer = q.answer || null;
+  } else {
+    tfAnswer = q.answer || null;
+  }
+  makerStage = 'questions';
   renderMakerStep();
 }
 
