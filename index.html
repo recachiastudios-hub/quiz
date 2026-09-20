@@ -86,9 +86,9 @@
     left: 0; right: 0;
     overflow-y: auto;
     display: flex;
-    align-items: center;
-    justify-content: center;
     padding: 24px;
+    /* The cards center themselves with  margin: auto  (see .card). Centering with
+       align-items / justify-content here cuts off the top of a tall card so you can't scroll up to it. */
   }
 
   .site-header {
@@ -132,6 +132,7 @@
     width: 100%;
     max-width: 560px;
     box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+    margin: auto;   /* centered when short; starts at the top (and scrolls) when tall */
   }
 
   .brand {
@@ -440,6 +441,33 @@
   }
   .timer-pill.low { color: var(--wrong); border-color: var(--wrong); }
   .time-note { font-size: 13px; color: var(--wrong); margin: 4px 0 16px; line-height: 1.5; }
+
+  /* ── pull down from the header to refresh ── */
+  #ptr {
+    position: fixed;
+    top: 64px;
+    left: 50%;
+    width: 40px;
+    height: 40px;
+    margin-left: -20px;
+    border-radius: 50%;
+    background: var(--card-bg);
+    border: 2px solid var(--border);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+    color: var(--text);
+    font-size: 20px;
+    line-height: 36px;
+    text-align: center;
+    z-index: 90;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-60px);
+  }
+  #ptr.spin { animation: ptrspin 0.8s linear infinite; }
+  @keyframes ptrspin {
+    from { transform: translateY(16px) rotate(0deg); }
+    to   { transform: translateY(16px) rotate(360deg); }
+  }
 
   #home { display: block; }
   #maker { display: none; }
@@ -1793,6 +1821,77 @@ function miniResultCard(res) {
       <div class="mini-breakdown">${rows}</div>
     </div>`;
 }
+
+// ── PULL DOWN FROM THE HEADER TO REFRESH ───────────────
+// The page uses its own scroll area, and the browser's built-in pull-to-refresh is switched off
+// (overscroll-behavior), so this does it by hand: touch the header, drag down, let go.
+(function () {
+  const TRIGGER = 90;            // how far to pull (after a little resistance) before it refreshes
+  let startY = null, pull = 0;
+
+  function getPtr() {
+    let p = document.getElementById('ptr');
+    if (!p) {
+      p = document.createElement('div');
+      p.id = 'ptr';
+      p.textContent = '↻';
+      document.body.appendChild(p);
+    }
+    return p;
+  }
+
+  function hidePtr() {
+    const p = document.getElementById('ptr');
+    if (!p) return;
+    p.classList.remove('spin');
+    p.style.transition = 'transform 0.2s, opacity 0.2s';
+    p.style.opacity = '0';
+    p.style.transform = 'translateY(-60px)';
+    p.style.borderColor = '';
+  }
+
+  document.addEventListener('touchstart', function (e) {
+    const onHeader = e.target && e.target.closest && e.target.closest('.site-header');
+    if (!onHeader || e.touches.length !== 1) { startY = null; return; }
+    startY = e.touches[0].clientY;
+    pull = 0;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function (e) {
+    if (startY === null) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) { pull = 0; hidePtr(); return; }
+    pull = Math.min(dy * 0.6, 130);
+    const p = getPtr();
+    p.classList.remove('spin');
+    p.style.transition = 'none';
+    p.style.opacity = String(Math.min(1, pull / 40));
+    p.style.transform = 'translateY(' + (pull - 60) + 'px) rotate(' + Math.round(pull * 3) + 'deg)';
+    p.style.borderColor = pull >= TRIGGER ? 'var(--correct)' : '';   // turns green when letting go will refresh
+  }, { passive: true });
+
+  function release(cancelled) {
+    if (startY === null) return;
+    startY = null;
+    if (cancelled || pull < TRIGGER) { pull = 0; hidePtr(); return; }
+    pull = 0;
+    // A quiz that is still being built lives only on this page: ask before throwing it away.
+    if (Array.isArray(questions) && questions.length > 0 &&
+        !confirm('Refresh the page? The quiz you are building has not been saved and will be lost.')) {
+      hidePtr();
+      return;
+    }
+    const p = getPtr();
+    p.style.transition = 'none';
+    p.style.opacity = '1';
+    p.style.borderColor = '';
+    p.classList.add('spin');
+    setTimeout(function () { location.reload(); }, 250);
+  }
+
+  document.addEventListener('touchend', function () { release(false); }, { passive: true });
+  document.addEventListener('touchcancel', function () { release(true); }, { passive: true });
+})();
 
 // ── START ──────────────────────────────────────────────
 try {
