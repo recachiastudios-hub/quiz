@@ -597,6 +597,7 @@ const MAX_TIME = 24 * 3600;   // longest time limit: 24 hours (in seconds)
 let plan = [];             // type of each question, in order: 'mc' or 'tf'
 let makerStage = 'setup';  // 'setup' -> 'custom' (optional) -> 'questions'
 let presetChoice = null;   // 'mix' | 'mc' | 'tf' | 'custom'
+const CUSTOM_MIN_ROWS = 10;   // Custom quiz screen: the list area never gets shorter than it is with this many questions
 let customPlan = [];       // rows in the custom list
 
 const PRESETS = [
@@ -941,14 +942,26 @@ function renderCustom() {
   document.getElementById('makerContent').innerHTML = `
     <h2>Custom quiz</h2>
     <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Choose the type of each question. T / F means true or false.</p>
-    <div class="plan-list">${rows}</div>
-    <button class="btn btn-outline plan-add" onclick="addCustom()" ${customPlan.length>=MAX_QUESTIONS?'disabled':''}>+ Add question</button>
-    <div class="plan-count">${mc} multiple choice · ${tf} true / false</div>
+    <div id="planWrap" style="display:flow-root;">
+      <div class="plan-list">${rows}</div>
+      <button class="btn btn-outline plan-add" onclick="addCustom()" ${customPlan.length>=MAX_QUESTIONS?'disabled':''}>+ Add question</button>
+      <div class="plan-count">${mc} multiple choice · ${tf} true / false</div>
+    </div>
     <div style="margin-top:24px;">
       <button class="btn btn-outline" onclick="customBack()">Back</button>
       <button class="btn" onclick="customNext()">Next →</button>
     </div>
     <div class="msg" id="msg"></div>`;
+  // Minimum size: the list area is never shorter than it is with the default 10 questions, so removing
+  // questions doesn't make the box shrink and the buttons below jump up. Adding more questions makes it
+  // taller, and removing them brings it back down, but only as far as that default size.
+  const wrap = document.getElementById('planWrap');
+  const list = wrap && wrap.querySelector('.plan-list');
+  if (wrap && list && customPlan.length) {
+    const perRow = list.offsetHeight / customPlan.length;
+    const atDefault = wrap.offsetHeight - list.offsetHeight + perRow * CUSTOM_MIN_ROWS;
+    wrap.style.minHeight = Math.ceil(atDefault) + 'px';
+  }
 }
 
 function setCustomType(i, t) { customPlan[i] = t; renderCustom(); }
