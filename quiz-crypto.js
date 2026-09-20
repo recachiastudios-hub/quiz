@@ -9,6 +9,13 @@
  *   time limit, hide the green / red flash, shuffle questions and answers.
  * Links made before those settings existed still open (they get the defaults).
  *
+ * Question types packed into the link:
+ *   Multiple choice  ->  [text, A, B, C, D, letter]
+ *   True / False     ->  [text, 'T' or 'F']
+ *   Custom Choice    ->  {k:'c', x:text, c:[choices...], a:[correct indexes...]}
+ *   Written          ->  {k:'w', x:text}
+ * Links made before Custom Choice and Written existed still open.
+ *
  * To change the key: replace KEY_HEX with any 32 hex characters (0-9, a-f).
  * Links made with the old key stop working, so make new links afterwards.
  *
@@ -39,13 +46,29 @@ function linkKey() {
   return crypto.subtle.importKey('raw', hexToBytes(KEY_HEX), 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
+function packQuestion(it) {
+  if (it.type === 'mc') return [it.text, ...it.choices, it.answer];
+  if (it.type === 'tf') return [it.text, it.answer === 'True' ? 'T' : 'F'];
+  if (it.type === 'cc') return { k: 'c', x: it.text, c: it.choices, a: it.answers };
+  if (it.type === 'wr') return { k: 'w', x: it.text };
+  throw new Error('unknown question type: ' + it.type);
+}
+
+function unpackQuestion(a) {
+  if (Array.isArray(a)) {
+    return a.length === 6
+      ? { type: 'mc', text: a[0], choices: a.slice(1, 5), answer: a[5] }
+      : { type: 'tf', text: a[0], answer: a[1] === 'T' ? 'True' : 'False' };
+  }
+  if (a && a.k === 'c') return { type: 'cc', text: a.x, choices: a.c, answers: a.a };
+  if (a && a.k === 'w') return { type: 'wr', text: a.x };
+  throw new Error('unknown question format');
+}
+
 async function encodeSecure(q) {
-  // MC: [text, A, B, C, D, letter]   TF: [text, 'T' or 'F']
   const compact = {
     i: q.id,
-    q: q.questions.map(it => it.type === 'mc'
-      ? [it.text, ...it.choices, it.answer]
-      : [it.text, it.answer === 'True' ? 'T' : 'F'])
+    q: q.questions.map(packQuestion)
   };
   // Settings are only written when they differ from the default, which keeps the link short:
   //   t = time limit in seconds (left out = unlimited)
@@ -76,9 +99,7 @@ async function decodeSecure(s) {
     t: Number(c.t) > 0 ? Math.floor(Number(c.t)) : 0,
     hf: c.h === 1,
     sh: c.s !== 0,
-    questions: c.q.map(a => a.length === 6
-      ? { type: 'mc', text: a[0], choices: a.slice(1, 5), answer: a[5] }
-      : { type: 'tf', text: a[0], answer: a[1] === 'T' ? 'True' : 'False' })
+    questions: c.q.map(unpackQuestion)
   };
 }
 
