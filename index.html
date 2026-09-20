@@ -618,7 +618,7 @@ let timerId = null;
 let timeIsUp = false;
 let timeLimit = { h: 0, m: 0, s: 0 };   // maker: the limit being chosen
 let hideFlash = true;         // maker: hide the green / red flash after a student answers
-let quizHideFlash = false;    // taker: the quiz being taken hides the flash
+let quizHideFlash = true;     // taker: the quiz being taken hides the flash (safe default)
 let shuffleOn = true;         // maker: shuffle question order and answer order for each student
 let quizShuffle = true;       // taker: the quiz being taken is shuffled
 
@@ -666,7 +666,7 @@ function validateQuiz(q) {
   const id = (typeof q.id === 'string' && /^[a-z0-9]{4,20}$/i.test(q.id)) ? q.id : '';
   let t = Number(q.t);
   t = (Number.isFinite(t) && t > 0) ? Math.min(Math.floor(t), MAX_TIME) : 0;
-  return { v: 1, id: id, t: t, hf: q.hf === true, sh: q.sh !== false, questions: out };
+  return { v: 1, id: id, t: t, hf: !!q.hf, sh: q.sh !== false, questions: out };
 }
 
 function shuffled(arr) {                     // Fisher–Yates
@@ -1282,7 +1282,11 @@ function startEditQuestion(i) {
 async function saveQuiz() {
   const tl = timeLimitSeconds();
   if (tl > MAX_TIME) { showMsg('The longest time limit is 24 hours.'); return; }
-  const quiz = validateQuiz({ v: 1, id: newQuizId(), t: tl, hf: hideFlash, sh: shuffleOn, questions: questions });
+  const flashBox = document.getElementById('hideFlashBox');
+  const shuffleBox2 = document.getElementById('shuffleBox');
+  const hf = flashBox ? flashBox.checked : hideFlash;
+  const sh = shuffleBox2 ? shuffleBox2.checked : shuffleOn;
+  const quiz = validateQuiz({ v: 1, id: newQuizId(), t: tl, hf: hf, sh: sh, questions: questions });
   if (!quiz) { showMsg('Something is wrong with the quiz. Please rebuild it.'); return; }
   const btn = document.getElementById('saveBtn');
 
@@ -1469,8 +1473,11 @@ function activateTaker() {
   if (timeLimitSeconds() > MAX_TIME) { showMsg('The longest time limit is 24 hours.'); return; }
   quizData = [...questions];
   quizTime = timeLimitSeconds();
-  quizHideFlash = hideFlash;
-  quizShuffle = shuffleOn;
+  // Read directly from checkbox in case the global got out of sync
+  const flashBox = document.getElementById('hideFlashBox');
+  quizHideFlash = flashBox ? flashBox.checked : hideFlash;
+  const shuffleBox = document.getElementById('shuffleBox');
+  quizShuffle = shuffleBox ? shuffleBox.checked : shuffleOn;
   previewMode = true;
   resetTaker();
   show('taker');
@@ -1806,7 +1813,7 @@ if (shared) {
   quizData = shared.quiz.questions;
   quizId = shared.quiz.id || ('h' + hashStr(JSON.stringify(shared.quiz.questions)));
   quizTime = shared.quiz.t || 0;
-  quizHideFlash = shared.quiz.hf === true;
+  quizHideFlash = !!shared.quiz.hf;
   quizShuffle = shared.quiz.sh !== false;
   initQueue();
   show('taker');
