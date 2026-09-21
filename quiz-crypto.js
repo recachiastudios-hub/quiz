@@ -10,11 +10,13 @@
  * Links made before those settings existed still open (they get the defaults).
  *
  * Question types packed into the link:
- *   Multiple choice  ->  [text, A, B, C, D, letter]
- *   True / False     ->  [text, 'T' or 'F']
- *   Custom Choice    ->  {k:'c', x:text, c:[choices...], a:[correct indexes...]}
- *   Written          ->  {k:'w', x:text}
- * Links made before Custom Choice and Written existed still open.
+ *   Multiple choice  ->  [text, A, B, C, D, letter]            (+ photo id appended = length 7)
+ *   True / False     ->  [text, 'T' or 'F']                    (+ photo id appended = length 3)
+ *   Custom Choice    ->  {k:'c', x:text, c:[choices...], a:[correct indexes...], p:photo id}
+ *   Written          ->  {k:'w', x:text, p:photo id}
+ * A question's "p" / trailing photo id is only present when the question has a photo — the
+ * photo itself is never inside the link, just the short id the page fetches it with.
+ * Links made before Custom Choice, Written or photos existed still open.
  *
  * To change the key: replace KEY_HEX with any 32 hex characters (0-9, a-f).
  * Links made with the old key stop working, so make new links afterwards.
@@ -47,21 +49,40 @@ function linkKey() {
 }
 
 function packQuestion(it) {
-  if (it.type === 'mc') return [it.text, ...it.choices, it.answer];
-  if (it.type === 'tf') return [it.text, it.answer === 'True' ? 'T' : 'F'];
-  if (it.type === 'cc') return { k: 'c', x: it.text, c: it.choices, a: it.answers };
-  if (it.type === 'wr') return { k: 'w', x: it.text };
+  if (it.type === 'mc') {
+    const arr = [it.text, ...it.choices, it.answer];
+    if (it.photo) arr.push(it.photo);
+    return arr;
+  }
+  if (it.type === 'tf') {
+    const arr = [it.text, it.answer === 'True' ? 'T' : 'F'];
+    if (it.photo) arr.push(it.photo);
+    return arr;
+  }
+  if (it.type === 'cc') {
+    const out = { k: 'c', x: it.text, c: it.choices, a: it.answers };
+    if (it.photo) out.p = it.photo;
+    return out;
+  }
+  if (it.type === 'wr') {
+    const out = { k: 'w', x: it.text };
+    if (it.photo) out.p = it.photo;
+    return out;
+  }
   throw new Error('unknown question type: ' + it.type);
 }
 
 function unpackQuestion(a) {
   if (Array.isArray(a)) {
-    return a.length === 6
-      ? { type: 'mc', text: a[0], choices: a.slice(1, 5), answer: a[5] }
-      : { type: 'tf', text: a[0], answer: a[1] === 'T' ? 'True' : 'False' };
+    // Multiple choice is 6 fields (text + 4 choices + answer), optionally + a photo id (7).
+    // True/False is 2 fields (text + answer), optionally + a photo id (3). The two never overlap.
+    if (a.length === 6 || a.length === 7) {
+      return { type: 'mc', text: a[0], choices: a.slice(1, 5), answer: a[5], photo: a[6] || '' };
+    }
+    return { type: 'tf', text: a[0], answer: a[1] === 'T' ? 'True' : 'False', photo: a[2] || '' };
   }
-  if (a && a.k === 'c') return { type: 'cc', text: a.x, choices: a.c, answers: a.a };
-  if (a && a.k === 'w') return { type: 'wr', text: a.x };
+  if (a && a.k === 'c') return { type: 'cc', text: a.x, choices: a.c, answers: a.a, photo: a.p || '' };
+  if (a && a.k === 'w') return { type: 'wr', text: a.x, photo: a.p || '' };
   throw new Error('unknown question format');
 }
 
