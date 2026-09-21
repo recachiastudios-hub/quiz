@@ -484,6 +484,31 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
   from { transform: translateY(16px) rotate(0deg); }
   to   { transform: translateY(16px) rotate(360deg); }
 }
+
+/* ── 11. QUESTION PHOTOS ─────────────────────────────────── */
+.photo-box { margin-top: 16px; }
+.photo-preview { margin-top: 8px; }
+.photo-preview img {
+  max-width: 100%; max-height: 220px; border-radius: 8px;
+  border: 1px solid var(--border); display: block; object-fit: contain;
+  background: var(--surface);
+}
+.photo-actions { display: flex; gap: 10px; margin-top: 10px; }
+.q-echo-photo { margin-bottom: 10px; }
+.q-echo-photo img {
+  max-width: 200px; max-height: 140px; border-radius: 8px;
+  border: 1px solid var(--border); display: block; object-fit: contain;
+}
+.q-media { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; }
+.q-media-img { flex: 0 0 220px; max-width: 220px; }
+.q-media-img img {
+  width: 100%; border-radius: 8px; border: 1px solid var(--border);
+  display: block; object-fit: contain; background: var(--surface);
+}
+.q-media h2 { margin-bottom: 0; flex: 1; min-width: 180px; }
+@media (max-width: 480px) {
+  .q-media-img { flex: 0 0 100%; max-width: 100%; }
+}
 </style>
 </head>
 <body>
@@ -518,6 +543,12 @@ const MAX_TIME = 24 * 3600;     // longest time limit, in seconds
 const MAX_CLASS = 50;           // most names in a class list
 const WR_MAX = 1000;            // longest written answer (characters)
 const CUSTOM_MIN_ROWS = 10;     // the custom-format list keeps room for this many rows
+
+// Photos on questions: resized/compressed in the browser before upload, then stored on the
+// server under a short id. The quiz (and the link) only ever carries that id, never the image.
+const PHOTO_MAX_DIM = 1000;      // longest side, in pixels, after resizing
+const PHOTO_QUALITY = 0.72;      // JPEG quality used when compressing
+const PHOTO_MAX_B64 = 500000;    // safety ceiling on the uploaded (base64) size, in characters
 
 const MC_LETTERS = ['A', 'B', 'C', 'D'];
 const CC_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
@@ -730,6 +761,9 @@ function apiPost(path, body, timeoutMs = 0) {
 
 const errWhy = (e, fallback = 'failed') => (e && e.name === 'AbortError') ? 'timed out' : ((e && e.message) || fallback);
 
+// The public URL for an uploaded question photo.
+function photoUrl(id) { return SHORT_API + '/photo?id=' + encodeURIComponent(id); }
+
 
 /* ── 3. THEME ───────────────────────────────────────────── */
 function applyTheme(theme) {
@@ -760,12 +794,13 @@ function validateQuiz(q) {
   for (const it of q.questions) {
     if (!it || typeof it.text !== 'string') return null;
     const text = it.text.slice(0, 500);
+    const photo = (typeof it.photo === 'string' && /^[a-z0-9]{6,32}$/i.test(it.photo)) ? it.photo : '';
     if (it.type === 'mc') {
       if (!Array.isArray(it.choices) || it.choices.length !== 4 || !MC_LETTERS.includes(it.answer)) return null;
-      out.push({ type: 'mc', text, choices: it.choices.map(c => String(c).slice(0, 300)), answer: it.answer });
+      out.push({ type: 'mc', text, choices: it.choices.map(c => String(c).slice(0, 300)), answer: it.answer, photo });
     } else if (it.type === 'tf') {
       if (it.answer !== 'True' && it.answer !== 'False') return null;
-      out.push({ type: 'tf', text, answer: it.answer });
+      out.push({ type: 'tf', text, answer: it.answer, photo });
     } else if (it.type === 'cc') {
       // Custom Choice: 4–10 choices, one or more correct (stored as sorted, unique indices)
       const n = Array.isArray(it.choices) ? it.choices.length : 0;
@@ -774,10 +809,11 @@ function validateQuiz(q) {
       out.push({
         type: 'cc', text,
         choices: it.choices.map(c => String(c).slice(0, 300)),
-        answers: [...new Set(it.answers)].sort((a, b) => a - b)
+        answers: [...new Set(it.answers)].sort((a, b) => a - b),
+        photo
       });
     } else if (it.type === 'wr') {
-      out.push({ type: 'wr', text });   // written: typed by the student, marked by the teacher
+      out.push({ type: 'wr', text, photo });   // written: typed by the student, marked by the teacher
     } else {
       return null;
     }
@@ -897,6 +933,7 @@ let tfAnswer = null;
 let ccCount = 4;
 let ccChoices = [];
 let ccCorrect = new Set();
+let photoBusy = false;           // true while a photo is being resized / uploaded
 let timeLimit = { h: 0, m: 0, s: 0 };
 let hideFlash = true;
 let shuffleOn = true;
@@ -988,12 +1025,13 @@ function startMaker() {
 }
 
 function resetDrafts() {
-  currentQ = {};
+  currentQ = { photo: '' };
   mcAnswer = null;
   tfAnswer = null;
   ccCount = 4;
   ccChoices = [];
   ccCorrect = new Set();
+  photoBusy = false;
 }
 
 const STAGE_RENDERERS = {
@@ -1020,7 +1058,7 @@ const counterHtml = (label, qNum) =>
   `<div class="q-counter">${editMode ? '✏️ Editing' : label} — Question ${qNum} of ${plan.length}</div>`;
 
 const questionTitle = qNum => `<h2>${editMode ? 'Edit Question' : 'Question'} ${qNum}</h2>`;
-const echoHtml = (cls = '') => `<p class="q-echo ${cls}" dir="auto">${esc(currentQ.text)}</p>`;
+const echoHtml = (cls = '') => `${currentQ.photo ? `<div class="q-echo-photo"><img src="${photoUrl(currentQ.photo)}" alt=""></div>` : ''}<p class="q-echo ${cls}" dir="auto">${esc(currentQ.text)}</p>`;
 const finishLabel = () => editMode ? 'Complete ✓' : 'Save Question →';
 const msgHtml = () => '<div class="msg" id="msg"></div>';
 
@@ -1030,6 +1068,94 @@ const navHtml = (nextFn, nextLabel = 'Next →') => `
     <button class="btn" onclick="${nextFn}">${nextLabel}</button>
   </div>`;
 
+// The "Add a photo" widget shown on the first step of every question type.
+function photoSectionHtml() {
+  const has = !!currentQ.photo;
+  return `
+    <div class="photo-box">
+      <label>Photo (optional)</label>
+      ${has ? `<div class="photo-preview"><img src="${photoUrl(currentQ.photo)}" alt="Question photo"></div>` : ''}
+      <div class="photo-actions">
+        <button type="button" class="btn btn-outline" style="margin:0;" onclick="pickPhoto()" ${photoBusy ? 'disabled' : ''}>
+          ${photoBusy ? 'Uploading…' : (has ? 'Replace Photo' : '📷 Add a Photo')}
+        </button>
+        ${has ? `<button type="button" class="btn btn-outline" style="margin:0;" onclick="removePhoto()" ${photoBusy ? 'disabled' : ''}>Remove</button>` : ''}
+      </div>
+      <input type="file" id="photoFile" accept="image/*" style="display:none;" onchange="handlePhotoFile(this.files[0])">
+      <div class="msg" id="photoMsg"></div>
+    </div>`;
+}
+
+function pickPhoto() {
+  const f = $('photoFile');
+  if (f) f.click();
+}
+
+function removePhoto() {
+  currentQ.photo = '';
+  renderMakerStep();
+}
+
+// Shrinks and compresses an image file in the browser before it is uploaded.
+function resizeImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) { reject(new Error('empty image')); return; }
+      if (Math.max(w, h) > PHOTO_MAX_DIM) {
+        if (w >= h) { h = Math.round(h * PHOTO_MAX_DIM / w); w = PHOTO_MAX_DIM; }
+        else { w = Math.round(w * PHOTO_MAX_DIM / h); h = PHOTO_MAX_DIM; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('could not process image')), 'image/jpeg', PHOTO_QUALITY);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('could not read image')); };
+    img.src = url;
+  });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('could not read image'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Resizes, compresses and uploads a chosen photo, then attaches it to the question being built.
+async function handlePhotoFile(file) {
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { showMsg('Please choose an image file.', 'photoMsg'); return; }
+  if (!SHORT_API) { showMsg('Photos need the link server, which is not set up on this page.', 'photoMsg'); return; }
+
+  photoBusy = true;
+  renderMakerStep();
+  try {
+    const blob = await resizeImageFile(file);
+    const b64 = await blobToBase64(blob);
+    if (!b64 || b64.length > PHOTO_MAX_B64) throw new Error('image too large');
+    const r = await apiPost('/upload-photo', { data: b64 }, 20000);
+    if (!r.ok) throw new Error('server ' + r.status);
+    const d = await r.json();
+    if (!d || typeof d.id !== 'string' || !d.id) throw new Error('bad response');
+    currentQ.photo = d.id;
+  } catch (e) {
+    photoBusy = false;
+    renderMakerStep();
+    showMsg('Could not upload the photo (' + errWhy(e) + '). Please try again.', 'photoMsg');
+    return;
+  }
+  photoBusy = false;
+  renderMakerStep();
+}
+
 // First step of every type: type the question
 function textStepHtml({ label, qNum, fieldLabel, placeholder, next, nextLabel, extra = '', msg = false }) {
   return `
@@ -1037,6 +1163,7 @@ function textStepHtml({ label, qNum, fieldLabel, placeholder, next, nextLabel, e
     ${questionTitle(qNum)}
     <label>${fieldLabel}</label>
     <textarea id="inp" dir="auto" rows="3" placeholder="${placeholder}">${esc(currentQ.text || '')}</textarea>
+    ${photoSectionHtml()}
     ${extra}
     ${navHtml(next, nextLabel)}
     ${msg ? msgHtml() : ''}`;
@@ -1302,7 +1429,7 @@ function renderEditList() {
     const preview = q.text.length > 50 ? q.text.slice(0, 50) + '…' : q.text;
     return `
       <div class="plan-row clickable" onclick="startEditQuestion(${i})">
-        <span class="plan-num">Q${i + 1} <span class="plan-tag">${TYPE_INFO[q.type].tag}</span></span>
+        <span class="plan-num">Q${i + 1} <span class="plan-tag">${TYPE_INFO[q.type].tag}${q.photo ? ' 📷' : ''}</span></span>
         <span class="plan-preview" dir="auto">${esc(preview)}</span>
         <span class="plan-edit">Edit →</span>
       </div>`;
@@ -1340,6 +1467,7 @@ function startEditQuestion(i) {
 function loadDrafts(q) {
   resetDrafts();
   currentQ = { ...q };
+  if (!currentQ.photo) currentQ.photo = '';
   if (q.choices) currentQ.choices = q.choices.slice();
   if (q.type === 'mc') mcAnswer = q.answer || null;
   if (q.type === 'tf') tfAnswer = q.answer || null;
@@ -1451,6 +1579,7 @@ function readQuizOptions() {
 /* ── 7. MAKER: HANDLERS ─────────────────────────────────── */
 // Saves the finished question (or the edited one) and moves on.
 function commitQuestion(q) {
+  q.photo = currentQ.photo || '';
   resetDrafts();
   if (editMode) {
     questions[editIndex] = q;
@@ -2085,6 +2214,9 @@ function renderTakerQ() {
   const total = quizData.length;
   const pct = Math.round(((total - queue.length) / total) * 100);
   const options = { mc: mcOptionsHtml, tf: tfOptionsHtml, cc: ccOptionsHtml, wr: wrInputHtml }[q.type](q, idx);
+  const heading = q.photo
+    ? `<div class="q-media"><div class="q-media-img"><img src="${photoUrl(q.photo)}" alt="" loading="lazy"></div><h2 dir="auto">${esc(q.text)}</h2></div>`
+    : `<h2 dir="auto" style="margin-bottom:24px;">${esc(q.text)}</h2>`;
 
   $('takerContent').innerHTML = `
     <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
@@ -2092,7 +2224,7 @@ function renderTakerQ() {
       <div class="q-counter">Question ${fullOrder.indexOf(idx) + 1} of ${total} · ${TYPE_INFO[q.type].label}</div>
       ${quizTime ? '<div class="timer-pill" id="timerBox"></div>' : ''}
     </div>
-    <h2 dir="auto" style="margin-bottom:24px;">${esc(q.text)}</h2>
+    ${heading}
     ${options}
     ${queue.length > 1 ? '<div class="skip-row"><button class="btn btn-outline skip-btn" onclick="skipQuestion()">Skip for now</button></div>' : ''}`;
   if (quizTime) paintTimer(timeLeft());
