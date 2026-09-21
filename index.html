@@ -100,6 +100,13 @@
     z-index: 100;
   }
 
+  .site-brand {
+    display: flex; align-items: center; gap: 12px;
+    background: none; border: 0; padding: 0; margin: 0;
+    color: inherit; font-family: inherit; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .site-brand:focus-visible { outline: 2px solid rgba(255,255,255,0.6); outline-offset: 4px; border-radius: 6px; }
   .site-logo { height: 32px; width: 32px; object-fit: contain; border-radius: 6px; flex-shrink: 0; }
   .site-title { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
 
@@ -601,8 +608,10 @@ const PAGE_TITLE = 'Quiz Builder — Youssef Hisham';
 const BODY_HTML = `
 <!-- SITE HEADER -->
 <header class="site-header">
-  <img class="site-logo" src="QLogo.png" alt="Quiz Builder logo">
-  <span class="site-title">Quiz Builder</span>
+  <button type="button" class="site-brand" onclick="refreshPage()" aria-label="Refresh the page" title="Refresh the page">
+    <img class="site-logo" src="QLogo.png" alt="Quiz Builder logo">
+    <span class="site-title">Quiz Builder</span>
+  </button>
   <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
 </header>
 
@@ -647,6 +656,7 @@ const BODY_HTML = `
   <div class="brand">© Youssef Hisham 2026</div>
   <div id="liveMain">
     <h1>Live Results</h1>
+    <div id="liveName" dir="auto" style="display:none;font-size:18px;font-weight:700;margin:-4px 0 8px;"></div>
     <p class="subtitle" id="liveStatus">Waiting for students to finish…</p>
     <div class="time-hint" id="liveCode" style="margin:-6px 0 10px;"></div>
     <div style="margin:4px 0 16px;"><button class="btn btn-outline" onclick="openRoom()">👥 Who's in the test →</button></div>
@@ -767,6 +777,9 @@ let claimedOnServer = false;
 let pendingPick = '';
 let classText = '';
 let classNames = [];
+let savedQuestionsSig = '';    // the questions as they were when the link was made (to know if anything is unsaved)
+let leaveWarningOff = false;   // true while the page itself is reloading after the teacher agreed
+let sessionName = '';          // teacher's own name for this session (optional)
 let liveTkMem = '';
 let roomOpen = false;
 let roomTickId = null;
@@ -1027,6 +1040,7 @@ function startMaker() {
   shuffleOn = true;
   classText = '';
   classNames = [];
+  sessionName = '';
   ccCount = 4;
   ccChoices = [];
   ccCorrect = new Set();
@@ -1368,6 +1382,11 @@ function renderMakerStep() {
         ${typeSummary.join(' + ')}<br>
         Students open your link, enter their name and answer. As soon as each student finishes, their result is sent to you automatically — watch them come in on the Live Results page.${wrCount ? '<br><br>✍️ <strong>Written answers</strong> wait for you: open Live Results and tap ✓ Correct or ✗ Wrong on each one. The percentage updates for you and for the student.' : ''}
       </div>
+      <div class="opt-box">
+        <label for="sessionName">Session name (optional)</label>
+        <input type="text" id="sessionName" dir="auto" maxlength="60" autocomplete="off" placeholder="${esc(defaultSessionName())}" value="${esc(sessionName)}" oninput="sessionName = this.value">
+        <div class="time-hint">Only you see this. It shows at the top of Live Results so you can tell your sessions apart. Left empty, it becomes "${esc(defaultSessionName())}".</div>
+      </div>
       <div class="time-box">
         <label>Time limit</label>
         <div class="time-row">
@@ -1418,6 +1437,28 @@ function renderMakerStep() {
   document.getElementById('makerContent').innerHTML = html;
   const inp = document.getElementById('inp');
   if (inp) inp.focus();
+}
+
+// ── MAKER: session name ────────────────────────────────
+function defaultSessionName() {
+  const now = new Date();
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return 'Quiz – ' + now.getDate() + ' ' + months[now.getMonth()];
+}
+
+function cleanSessionName(v) {
+  return String(v || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+function nameFor(id) {
+  try { return localStorage.getItem('qb_name:' + id) || ''; } catch (e) { return ''; }
+}
+
+function setLiveName(n) {
+  const el = document.getElementById('liveName');
+  if (!el) return;
+  el.textContent = n || '';
+  el.style.display = n ? 'block' : 'none';
 }
 
 // ── MAKER: time limit ──────────────────────────────────
@@ -1736,6 +1777,10 @@ async function saveQuiz() {
   const sh = shuffleBox2 ? shuffleBox2.checked : shuffleOn;
   const quiz = validateQuiz({ v: 1, id: newQuizId(), t: tl, hf: hf, sh: sh, questions: questions });
   if (!quiz) { showMsg('Something is wrong with the quiz. Please rebuild it.'); return; }
+  try { savedQuestionsSig = JSON.stringify(questions); } catch (e) {}
+  const nameBox = document.getElementById('sessionName');
+  const sname = cleanSessionName(nameBox ? nameBox.value : sessionName) || defaultSessionName();
+  try { localStorage.setItem('qb_name:' + quiz.id, sname); } catch (e) {}
   const btn = document.getElementById('saveBtn');
 
   let artifact = null;
@@ -1803,7 +1848,7 @@ async function saveQuiz() {
   if (!isLocal) {
     const tk = newTeacherKey();
     try { if (tk) localStorage.setItem('qb_tk:' + quiz.id, tk); } catch (e) {}
-    const setup = await serverSetup(quiz.id, tk, classNames);
+    const setup = await serverSetup(quiz.id, tk, classNames, sname);
     if (setup.code) { try { localStorage.setItem('qb_code:' + quiz.id, setup.code); } catch (e) {} }
     if (!setup.ok) {
       setupNote = classNames.length
@@ -1833,7 +1878,7 @@ function teacherKeyFor(id) {
   try { return localStorage.getItem('qb_tk:' + id) || ''; } catch (e) { return ''; }
 }
 
-async function serverSetup(id, tk, names) {
+async function serverSetup(id, tk, names, sname) {
   if (!tk) return { ok: false, code: '' };
   for (let i = 0; i < 2; i++) {
     try {
@@ -1842,7 +1887,7 @@ async function serverSetup(id, tk, names) {
       const r = await fetch(SHORT_API + '/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id, tk: tk, names: names || [] }),
+        body: JSON.stringify({ id: id, tk: tk, names: names || [], name: sname || '' }),
         signal: ctl.signal
       });
       clearTimeout(timer);
@@ -1883,6 +1928,7 @@ function renderLinkPanel(link, id) {
     : '';
   document.getElementById('makerContent').innerHTML = `
     <h2>Your student link 🔗</h2>
+    ${nameFor(id) ? `<div style="font-size:15px;font-weight:700;margin:-8px 0 12px;" dir="auto">${esc(nameFor(id))}</div>` : ''}
     <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Send this link to your students. The quiz is compressed and encrypted inside it, so the answers can't be read from the link.</p>
     <input type="text" id="linkBox" readonly value="${esc(link)}" onclick="this.select()">
     <div style="margin-top:20px;">
@@ -2599,7 +2645,11 @@ async function resumeSession() {
       return;
     }
     liveTkMem = d.tk.toLowerCase();
-    try { localStorage.setItem('qb_tk:' + d.id, liveTkMem); localStorage.setItem('qb_code:' + d.id, code); } catch (e) {}
+    try {
+      localStorage.setItem('qb_tk:' + d.id, liveTkMem);
+      localStorage.setItem('qb_code:' + d.id, code);
+      if (typeof d.name === 'string' && d.name) localStorage.setItem('qb_name:' + d.id, d.name.slice(0, 60));
+    } catch (e) {}
     try { history.replaceState(null, '', location.pathname + location.search + '#live=' + d.id); } catch (e) {}
     showMsg('', 'homeMsg');
     startLiveResults(d.id);
@@ -2613,6 +2663,7 @@ function startLiveResults(id) {
   liveQuizId = id;
   show('live');
   const c = codeFor(id);
+  setLiveName(nameFor(id));
   const cEl = document.getElementById('liveCode');
   if (cEl) cEl.textContent = c ? '🔑 Session code: ' + c : '';
   renderLiveResults([]);
@@ -2642,6 +2693,10 @@ async function pollLiveResults() {
       const r = await fetch(SHORT_API + '/results?id=' + encodeURIComponent(liveQuizId));
       if (!r.ok) return;
       d = await r.json();
+    }
+    if (d && typeof d.session === 'string' && d.session) {
+      setLiveName(d.session);
+      try { localStorage.setItem('qb_name:' + liveQuizId, d.session); } catch (e) {}
     }
     // Don't let an old reply undo a mark the teacher just made
     if (gradeBusy > 0 || startedAt < lastGradeDoneAt) return;
@@ -2876,6 +2931,38 @@ function gradeWritten(sid, i, r) {
   });
 }
 
+// ── REFRESHING THE PAGE ────────────────────────────────
+// A teacher has something to lose only while the quiz they are building has questions that no link was
+// made for yet. Students never do: their name, answers and timer are saved and come back.
+function hasUnsavedQuiz() {
+  try {
+    return Array.isArray(questions) && questions.length > 0 && JSON.stringify(questions) !== savedQuestionsSig;
+  } catch (e) { return false; }
+}
+
+// Asks once (only when there is something to lose). Returns true when it is fine to reload.
+function okToRefresh() {
+  return !hasUnsavedQuiz() || confirm("You'll lose your progress. Refresh anyway?");
+}
+
+function reloadNow() {
+  leaveWarningOff = true;   // we already asked, so the browser must not ask a second time
+  location.reload();
+}
+
+// Tapping the logo or "Quiz Builder" in the header
+function refreshPage() {
+  if (okToRefresh()) reloadNow();
+}
+
+// The browser's own "Leave site?" prompt for the browser's refresh / back / closing the tab.
+// It can only be shown, not reworded, and some phones (iPhone Safari) skip it.
+window.addEventListener('beforeunload', function (e) {
+  if (leaveWarningOff || !hasUnsavedQuiz()) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
 // ── PULL-TO-REFRESH ────────────────────────────────────
 (function () {
   const TRIGGER = 90;
@@ -2927,8 +3014,7 @@ function gradeWritten(sid, i, r) {
     startY = null;
     if (cancelled || pull < TRIGGER) { pull = 0; hidePtr(); return; }
     pull = 0;
-    if (Array.isArray(questions) && questions.length > 0 &&
-        !confirm('Refresh the page? The quiz you are building has not been saved and will be lost.')) {
+    if (!okToRefresh()) {
       hidePtr();
       return;
     }
@@ -2937,7 +3023,7 @@ function gradeWritten(sid, i, r) {
     p.style.opacity = '1';
     p.style.borderColor = '';
     p.classList.add('spin');
-    setTimeout(function () { location.reload(); }, 250);
+    setTimeout(reloadNow, 250);
   }
 
   document.addEventListener('touchend', function () { release(false); }, { passive: true });
