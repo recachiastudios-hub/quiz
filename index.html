@@ -540,6 +540,16 @@ const GUEST_CONTACT_HTML = `
   </div>`;
 
 function guestGateHtml(featureName) {
+  if (hasAccount() && !isTeacher()) {
+    // Account exists but subscription is expired
+    return `
+      <div class="guest-gate">
+        <div class="guest-gate-icon">⏰</div>
+        <h3>${featureName} — Subscription Required</h3>
+        <p>Your subscription has expired. Apply a renewal code to unlock this feature.</p>
+        <button class="btn" style="margin-top:14px;" onclick="openRenewModal()">Renew Subscription →</button>
+      </div>`;
+  }
   return `
     <div class="guest-gate">
       <div class="guest-gate-icon">🔒</div>
@@ -724,10 +734,16 @@ let leaveWarningOff=false;
 
 
 /* ── 5b. AUTH STATE & HELPERS ───────────────────────────── */
-let authUser = null;   // null = guest, string = username
+let authUser   = null;   // null = guest, string = username
+let authSubActive = false; // true = subscription is active (features unlocked)
+let authSubExp    = -1;   // unix-ms expiry; 0 = permanent; -1 = unknown/none
+let authSubDur    = '';   // '7d' | '1m' | '3m' | '6m' | 'perm'
 
 function authToken() { return lsGet('qb_auth_token') || ''; }
-function isTeacher() { return !!authUser; }
+// isTeacher() = has account AND subscription is active
+function isTeacher() { return !!authUser && authSubActive; }
+// hasAccount() = logged in (whether or not sub is active)
+function hasAccount() { return !!authUser; }
 
 // Checks the stored token with the server. Returns username or null.
 async function checkAuth() {
@@ -740,7 +756,13 @@ async function checkAuth() {
     }, 6000);
     if (!r.ok) { lsDel('qb_auth_token'); return null; }
     const d = await r.json();
-    return (d && typeof d.username === 'string') ? d.username : null;
+    if (d && typeof d.username === 'string') {
+      authSubActive = !!d.sub_active;
+      authSubExp    = typeof d.sub_exp === 'number' ? d.sub_exp : -1;
+      authSubDur    = typeof d.sub_dur === 'string' ? d.sub_dur : '';
+      return d.username;
+    }
+    return null;
   } catch(e) { return null; }
 }
 
@@ -753,7 +775,18 @@ async function doLogin(username, password) {
   if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error((d&&d.error)||'Login failed. Check your username and password.'); }
   const d = await r.json();
   lsSet('qb_auth_token', d.token);
-  authUser = d.username;
+  authUser      = d.username;
+  // Sub status comes from /me after login (login endpoint doesn't return it)
+  // so we fire a quick /me to get it, fall back to inactive if it fails
+  try {
+    const r2 = await apiFetch(SHORT_API + '/me', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+d.token} }, 5000);
+    if (r2.ok) {
+      const d2 = await r2.json();
+      authSubActive = !!d2.sub_active;
+      authSubExp    = typeof d2.sub_exp === 'number' ? d2.sub_exp : -1;
+      authSubDur    = typeof d2.sub_dur === 'string' ? d2.sub_dur : '';
+    }
+  } catch(e) {}
   return d.username;
 }
 
@@ -770,7 +803,10 @@ async function doRegister(username, password, invite) {
   }
   const d = await r.json();
   lsSet('qb_auth_token', d.token);
-  authUser = d.username;
+  authUser      = d.username;
+  authSubActive = !!d.sub_active;
+  authSubExp    = typeof d.sub_exp === 'number' ? d.sub_exp : -1;
+  authSubDur    = typeof d.sub_dur === 'string' ? d.sub_dur : '';
   return d.username;
 }
 
@@ -780,7 +816,7 @@ async function doLogout() {
     try { await apiFetch(SHORT_API + '/logout', { method:'POST', headers:{'Authorization':'Bearer '+token} }, 5000); } catch(e){}
   }
   lsDel('qb_auth_token');
-  authUser = null;
+  authUser = null; authSubActive = false; authSubExp = -1; authSubDur = '';
   renderHeaderAuth();
   renderHomePage();
 }
@@ -869,39 +905,130 @@ async function submitRegister() {
 function renderHeaderAuth() {
   const el = $('headerAuth');
   if (!el) return;
-  if (isTeacher()) {
-    el.innerHTML = `
-      <span class="header-user">👤 ${esc(authUser)}</span>
-      <button class="header-btn" onclick="doLogout()">Log Out</button>`;
+  if (hasAccount()) {
+    if (isTeacher()) {
+      // Active subscription
+      const expText = authSubExp === 0 ? '♾ Permanent' : authSubExp > 0 ? 'Expires ' + new Date(authSubExp).toLocaleDateString([],{day:'2-digit',month:'short',year:'numeric'}) : '';
+      const daysLeft = authSubExp > 0 ? Math.ceil((authSubExp - Date.now()) / 86400000) : null;
+      const warnStyle = daysLeft !== null && daysLeft <= 14 ? 'color:var(--yellow);' : 'color:var(--green);';
+      el.innerHTML = `
+        <span class="header-user" style="display:flex;flex-direction:column;line-height:1.2;gap:1px;">
+          <span>👤 ${esc(authUser)}</span>
+          <span style="font-size:10px;font-weight:600;${warnStyle}">${expText}</span>
+        </span>
+        <button class="header-btn" onclick="doLogout()">Log Out</button>`;
+    } else {
+      // Account exists but subscription is expired/inactive
+      el.innerHTML = `
+        <span class="header-user" style="display:flex;flex-direction:column;line-height:1.2;gap:1px;">
+          <span>👤 ${esc(authUser)}</span>
+          <span style="font-size:10px;font-weight:600;color:var(--red);">Subscription expired</span>
+        </span>
+        <button class="header-btn primary" style="background:var(--accent);" onclick="openRenewModal()">Renew →</button>
+        <button class="header-btn" onclick="doLogout()">Log Out</button>`;
+    }
   } else {
     el.innerHTML = `
       <button class="header-btn" onclick="openAuthModal('login')">Log In</button>
       <button class="header-btn primary" onclick="openAuthModal('register')">Register</button>`;
   }
-  // Keep theme toggle after auth area - it's positioned by CSS margin-left:auto on headerAuth
 }
 
 function renderHomePage() {
   const subtitle = $('homeSubtitle');
-  const sessBtn = $('sessionsBtn');
+  const sessBtn  = $('sessionsBtn');
   if (subtitle) {
     subtitle.textContent = isTeacher()
       ? `Welcome back, ${authUser}! Build a quiz or check your sessions.`
-      : 'Create a quiz and share it with your students.';
+      : hasAccount()
+        ? `Your subscription has expired, ${authUser}. Renew to unlock all features.`
+        : 'Create a quiz and share it with your students.';
   }
   if (sessBtn) {
     sessBtn.textContent = isTeacher() ? 'My Sessions' : 'My Sessions 🔒';
+  }
+  // Expiry banner for accounts with expired sub
+  const banner = $('subExpiredBanner');
+  if (banner) banner.remove();
+  if (hasAccount() && !isTeacher()) {
+    const b = document.createElement('div');
+    b.id = 'subExpiredBanner';
+    b.style.cssText = 'background:rgba(240,96,96,0.08);border:1px solid rgba(240,96,96,0.3);border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:14px;';
+    b.innerHTML = `<span style="font-size:28px;">⏰</span>
+      <div style="flex:1">
+        <div style="font-weight:700;color:var(--red);margin-bottom:2px;">Your subscription has expired</div>
+        <div style="font-size:13px;color:var(--muted);">Photos, timer, class list, shuffle and live results are locked. Apply a renewal code to continue.</div>
+      </div>
+      <button class="header-btn primary" style="background:var(--accent);white-space:nowrap;" onclick="openRenewModal()">Renew →</button>`;
+    const homeContent = $('homeContent') || $('home');
+    if (homeContent && homeContent.firstChild) homeContent.insertBefore(b, homeContent.firstChild);
   }
   // close sessions box
   const box = $('sessionsBox');
   if (box) { box.style.display = 'none'; box.innerHTML = ''; }
 }
 
+// ── Renew modal ──
+function openRenewModal() {
+  closeAuthModal();
+  const overlay = document.createElement('div');
+  overlay.className = 'auth-overlay';
+  overlay.id = 'authOverlay';
+  overlay.innerHTML = `
+    <div class="auth-modal" role="dialog" aria-modal="true">
+      <button class="auth-close" onclick="closeAuthModal()" aria-label="Close">✕</button>
+      <div style="font-size:24px;margin-bottom:8px;">🔄</div>
+      <h2 style="margin-bottom:6px;">Renew Subscription</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:20px;">Enter the renewal invite code you received.</p>
+      <div class="auth-field"><label>Renewal Code</label><input type="text" id="renewCode" autocomplete="off" autocapitalize="none" placeholder="e.g. xk7r2pab4m2n"></div>
+      <button class="btn" style="width:100%;margin-top:4px;" onclick="submitRenew()" id="renewBtn">Apply Code →</button>
+      <div class="msg" id="renewMsg"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeAuthModal(); });
+  setTimeout(() => { const inp = $('renewCode'); if (inp) inp.focus(); }, 50);
+}
+
+async function submitRenew() {
+  const invite = ($('renewCode')||{}).value?.trim() || '';
+  if (!invite) { showMsg('Please enter a renewal code.','renewMsg'); return; }
+  const btn = $('renewBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+  showMsg('','renewMsg');
+  try {
+    const r = await apiFetch(SHORT_API + '/renew', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken() },
+      body: JSON.stringify({ invite })
+    }, 10000);
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) {
+      const msgs = { 'invite invalid or expired': 'That code is invalid or has already been used.', 'not authenticated': 'Session expired — please log in again.' };
+      showMsg(msgs[d&&d.error] || 'Could not apply the code. Please try again.', 'renewMsg');
+      if (btn) { btn.disabled = false; btn.textContent = 'Apply Code →'; }
+      return;
+    }
+    authSubActive = !!d.sub_active;
+    authSubExp    = typeof d.sub_exp === 'number' ? d.sub_exp : -1;
+    authSubDur    = typeof d.sub_dur === 'string' ? d.sub_dur : '';
+    closeAuthModal();
+    renderHeaderAuth();
+    renderHomePage();
+    show('home');
+  } catch(e) {
+    showMsg('Could not reach the server. Check your connection.', 'renewMsg');
+    if (btn) { btn.disabled = false; btn.textContent = 'Apply Code →'; }
+  }
+}
+
 // ── My Sessions ──
 async function openSessions() {
-  if (!isTeacher()) {
-    // Show the auth modal — they need to log in first
+  if (!hasAccount()) {
     openAuthModal('login');
+    return;
+  }
+  if (!isTeacher()) {
+    // Account exists but subscription expired
+    openRenewModal();
     return;
   }
   const box = $('sessionsBox');
@@ -967,6 +1094,19 @@ const msgHtml = () => '<div class="msg" id="msg"></div>';
 const navHtml = (nextFn, nextLabel='Next →') => `<div class="actions"><button class="btn btn-outline" onclick="makerBack()">← Back</button><button class="btn" onclick="${nextFn}">${nextLabel}</button></div>`;
 
 function photoSectionHtml() {
+  if (!isTeacher()) {
+    // Show a locked placeholder instead of the photo button
+    return `<div class="photo-box">
+      <div class="opt-locked-wrap" onclick="showGuestGate('Question Photos')" style="cursor:pointer;">
+        <label style="pointer-events:none;">Photo (optional)</label>
+        <div class="opt-locked" style="display:flex;align-items:center;gap:8px;padding:8px 0;">
+          <span style="font-size:18px;">📷</span>
+          <span style="font-size:13px;">Add a Photo 🔒</span>
+        </div>
+      </div>
+      <div id="photoGateSlot"></div>
+    </div>`;
+  }
   const has = !!currentQ.photo;
   return `<div class="photo-box"><label>Photo (optional)</label>
     ${has?`<div class="photo-preview"><img src="${photoUrl(currentQ.photo)}" alt="Question photo"></div>`:''}
@@ -1114,24 +1254,48 @@ function doneStepHtml() {
     ? '' // rendered after save in renderLinkPanel
     : '';
 
+  // Timer — only teachers
+  const timerSection = isTeacher()
+    ? `<div class="time-box">
+        <label>Time limit</label>
+        <div class="time-row">${timeFields}</div>
+        <div class="time-hint" id="timeSummary">${timeSummaryText(timeLimitSeconds())}</div>
+      </div>`
+    : `<div class="opt-box">
+        <div class="opt-locked-wrap" onclick="showGuestGate('Timer')" style="cursor:pointer;">
+          <label style="pointer-events:none;">Time limit 🔒</label>
+          <div class="opt-locked" style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;">
+            <span>⏱ Set a countdown timer for students</span>
+          </div>
+        </div>
+      </div>`;
+
+  // Class list — only teachers
+  const classListSection = isTeacher()
+    ? `<div class="opt-box">
+        <label>Class list (optional)</label>
+        <div class="time-hint" style="margin-top:0;margin-bottom:12px;">${n?'<strong>'+n+(n===1?' name':' names')+'</strong> — only these students can start.':'Not used — students can type any name.'}</div>
+        <button class="btn btn-outline" style="margin:0;" onclick="openClassList()">${n?'Edit class list':'Set up class list'}</button>
+      </div>`
+    : `<div class="opt-box">
+        <div class="opt-locked-wrap" onclick="showGuestGate('Student List')" style="cursor:pointer;">
+          <label style="pointer-events:none;">Class list 🔒</label>
+          <div class="opt-locked" style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;">
+            <span>👥 Restrict the quiz to a specific class</span>
+          </div>
+        </div>
+      </div>`;
+
   return `<h2>Quiz Ready! 🎉</h2>
     <p class="lead" style="margin-bottom:24px;">All ${plan.length} questions are in. Save the quiz to get a link for your students.</p>
     <div class="info-box">${summary}<br>Students open your link, enter their name and answer. ${isTeacher()?'As soon as each student finishes, their result is sent to you automatically.':'Results are sent automatically when students finish.'}${hasWritten&&isTeacher()?'<br><br>✍️ <strong>Written answers</strong> wait for you in Live Results.':''}</div>
     ${sessionNameSection}
-    <div class="time-box">
-      <label>Time limit</label>
-      <div class="time-row">${timeFields}</div>
-      <div class="time-hint" id="timeSummary">${timeSummaryText(timeLimitSeconds())}</div>
-    </div>
+    ${timerSection}
     <div class="opt-box">
       ${hideFlashSection}
       ${shuffleSection}
     </div>
-    <div class="opt-box">
-      <label>Class list (optional)</label>
-      <div class="time-hint" style="margin-top:0;margin-bottom:12px;">${n?'<strong>'+n+(n===1?' name':' names')+'</strong> — only these students can start.':'Not used — students can type any name.'}</div>
-      <button class="btn btn-outline" style="margin:0;" onclick="openClassList()">${n?'Edit class list':'Set up class list'}</button>
-    </div>
+    ${classListSection}
     <button class="btn" id="saveBtn" onclick="saveQuiz()" style="width:100%;">Save Quiz &amp; Get Link →</button>
     <div class="save-grid">
       <button class="btn btn-outline" onclick="openEditList()">Edit Questions</button>
@@ -1448,11 +1612,16 @@ function renderLocked(){$('takerContent').innerHTML=`<div class="locked"><div cl
 const liveTeacherKey=()=>liveTkMem||teacherKeyFor(liveQuizId);
 
 function startLiveResults(id){
-  // Gate: only teachers can open Live Results
+  // Gate: only teachers with active subscription can open Live Results
   if (!isTeacher()){
     show('home');
-    openAuthModal('login');
-    showMsg('Log in to your teacher account to view Live Results.','homeMsg');
+    if (hasAccount()) {
+      openRenewModal();
+      showMsg('Renew your subscription to view Live Results.','homeMsg');
+    } else {
+      openAuthModal('login');
+      showMsg('Log in to your teacher account to view Live Results.','homeMsg');
+    }
     return;
   }
   liveQuizId=id;liveSig='';show('live');const c=codeFor(id);setLiveName(nameFor(id));$('liveCode').textContent=c?'🔑 Session code: '+c:'';renderLiveResults([]);pollLiveResults();if(livePollId)clearInterval(livePollId);livePollId=setInterval(pollLiveResults,3000);
