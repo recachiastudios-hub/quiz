@@ -230,44 +230,6 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
   .save-grid .wide { grid-column: auto; }
 }
 
-/* ── Sticky action bar for question-builder steps ── */
-/* The maker card is inside .scroll-area which scrolls.
-   We make the card itself a positioning parent and pin the
-   .actions bar to its bottom so Back / Next are always visible. */
-#maker { display: flex; flex-direction: column; padding-bottom: 0; }
-#makerContent {
-  flex: 1;
-  /* Extra bottom padding so the last input isn't hidden behind the sticky bar */
-  padding-bottom: 80px;
-}
-/* Any .actions div that is a direct child of #makerContent gets pinned */
-#makerContent > .actions,
-#makerContent .maker-actions {
-  position: sticky;
-  bottom: 0;
-  /* Pull the bar to card edges to cover any content sliding under it */
-  margin-left: -40px;
-  margin-right: -40px;
-  padding: 14px 40px;
-  background: var(--card-bg);
-  border-top: 1px solid var(--border);
-  display: flex;
-  gap: 10px;
-  z-index: 10;
-}
-#makerContent > .actions .btn,
-#makerContent .maker-actions .btn {
-  margin: 0;
-}
-@media (max-width: 480px) {
-  #makerContent > .actions,
-  #makerContent .maker-actions {
-    margin-left: -18px;
-    margin-right: -18px;
-    padding: 12px 18px;
-  }
-}
-
 /* ── 8. TAKER & RESULT SCREENS ───────────────────────────── */
 .name-input-wrap { margin-bottom: 24px; }
 .q-counter { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
@@ -428,18 +390,12 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
 
 /* My Sessions panel */
 .session-row {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 14px;
-  flex-wrap: wrap;
 }
-.session-name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 120px; }
-.session-name-edit { font-weight: 600; flex: 1; min-width: 120px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: var(--font); background: var(--card-bg); color: var(--text); outline: none; }
-.session-name-edit:focus { border-color: var(--text); }
-.session-code { font-size: 12px; color: var(--muted); font-family: monospace; letter-spacing: 2px; width: 100%; padding-top: 2px; }
-.session-btn { padding: 6px 14px; font-size: 13px; margin: 0; white-space: nowrap; }
-.session-icon-btn { padding: 5px 8px; font-size: 14px; margin: 0; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); cursor: pointer; font-family: var(--font); transition: all 0.15s; white-space: nowrap; }
-.session-icon-btn:hover { color: var(--text); border-color: var(--border-hover); }
-.session-icon-btn.danger:hover { color: var(--wrong); border-color: var(--wrong); }
+.session-name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-code { font-size: 12px; color: var(--muted); font-family: monospace; letter-spacing: 2px; }
+.session-btn { padding: 6px 14px; font-size: 13px; margin: 0; }
 
 /* Preset option — locked variant */
 .answer-option.preset-locked {
@@ -942,10 +898,9 @@ function renderHomePage() {
 }
 
 // ── My Sessions ──
-let _sessionsCache = [];   // local mirror so rename/delete can operate without a re-fetch
-
 async function openSessions() {
   if (!isTeacher()) {
+    // Show the auth modal — they need to log in first
     openAuthModal('login');
     return;
   }
@@ -961,94 +916,25 @@ async function openSessions() {
     if (!r.ok) throw new Error('server error');
     const d = await r.json();
     const sessions = (d && Array.isArray(d.sessions)) ? d.sessions : [];
-    _sessionsCache = sessions.map(s => ({...s}));
-    renderSessionsList();
+    if (!sessions.length) {
+      box.innerHTML = '<div class="info-box" style="margin:0;">You have no saved sessions yet. Save a quiz to see it here.</div>';
+      return;
+    }
+    box.innerHTML = '<div style="border-top:1px solid var(--border);margin-top:4px;">' +
+      sessions.map(s => {
+        const name = s.name || ('Quiz ' + new Date(s.ts).toLocaleDateString());
+        const tk = teacherKeyFor(s.id);
+        return `<div class="session-row">
+          <div>
+            <div class="session-name" dir="auto">${esc(name)}</div>
+            ${s.code ? `<div class="session-code">${esc(s.code)}</div>` : ''}
+          </div>
+          <a class="btn btn-outline session-btn" href="#live=${esc(s.id)}${tk?'.'+esc(tk):''}" target="_blank" rel="noopener">Open →</a>
+        </div>`;
+      }).join('') + '</div>';
   } catch(e) {
     box.innerHTML = `<div class="msg" style="margin:0;">Could not load sessions. Check your connection.</div>`;
   }
-}
-
-function renderSessionsList() {
-  const box = $('sessionsBox');
-  if (!box) return;
-  const sessions = _sessionsCache;
-  if (!sessions.length) {
-    box.innerHTML = '<div class="info-box" style="margin:0;">You have no saved sessions yet. Save a quiz to see it here.</div>';
-    return;
-  }
-  box.innerHTML = '<div id="sessionsListInner" style="border-top:1px solid var(--border);margin-top:4px;">' +
-    sessions.map((s, idx) => {
-      const name = s.name || ('Quiz ' + new Date(s.ts).toLocaleDateString());
-      const tk = teacherKeyFor(s.id);
-      return `<div class="session-row" id="srow_${idx}">
-        <div style="flex:1;min-width:0;">
-          <div class="session-name" id="sname_${idx}" dir="auto">${esc(name)}</div>
-          ${s.code ? `<div class="session-code">${esc(s.code)}</div>` : ''}
-        </div>
-        <a class="btn btn-outline session-btn" href="#live=${esc(s.id)}${tk?'.'+esc(tk):''}" target="_blank" rel="noopener">Open →</a>
-        <button class="session-icon-btn" title="Rename" onclick="startRenameSession(${idx})">✏️</button>
-        <button class="session-icon-btn danger" title="Remove from list" onclick="deleteSession(${idx})">🗑</button>
-      </div>`;
-    }).join('') + '</div>';
-}
-
-function startRenameSession(idx) {
-  const s = _sessionsCache[idx];
-  if (!s) return;
-  const nameEl = $('sname_' + idx);
-  if (!nameEl) return;
-  const current = s.name || ('Quiz ' + new Date(s.ts).toLocaleDateString());
-  // Replace the name div with an inline input
-  nameEl.outerHTML = `<input class="session-name-edit" id="srename_${idx}" value="${esc(current)}"
-    onkeydown="handleRenameKey(event,${idx})"
-    onblur="commitRename(${idx})">`;
-  const inp = $('srename_' + idx);
-  if (inp) { inp.focus(); inp.select(); }
-}
-
-function handleRenameKey(e, idx) {
-  if (e.key === 'Enter') { e.preventDefault(); commitRename(idx); }
-  if (e.key === 'Escape') { renderSessionsList(); }
-}
-
-async function commitRename(idx) {
-  const inp = $('srename_' + idx);
-  if (!inp) return;   // already committed
-  const val = inp.value.trim().slice(0, 60);
-  const s = _sessionsCache[idx];
-  if (!s) return;
-  const newName = val || ('Quiz ' + new Date(s.ts).toLocaleDateString());
-  _sessionsCache[idx] = { ...s, name: newName };
-  renderSessionsList();
-  // Persist the rename to the server via /setup (which already updates sname)
-  try {
-    const tk = teacherKeyFor(s.id);
-    if (tk) {
-      await apiPost('/setup', { id: s.id, tk, name: newName });
-    }
-  } catch(e) { /* non-fatal — local cache already updated */ }
-}
-
-async function deleteSession(idx) {
-  const s = _sessionsCache[idx];
-  if (!s) return;
-  const name = s.name || ('Quiz ' + new Date(s.ts).toLocaleDateString());
-  if (!confirm(`Remove "${name}" from My Sessions?\n\nThe quiz link still works — this only removes it from your list.`)) return;
-  _sessionsCache.splice(idx, 1);
-  renderSessionsList();
-  // Best-effort server removal: we don't have a dedicated endpoint, so we
-  // overwrite myquizzes: with the trimmed list via a tiny helper call.
-  // (If the server doesn't support this yet it's silent — list is removed locally.)
-  try {
-    const token = authToken();
-    if (token) {
-      await apiFetch(SHORT_API + '/delete-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-        body: JSON.stringify({ id: s.id })
-      }, 5000);
-    }
-  } catch(e) { /* non-fatal */ }
 }
 
 
@@ -1597,18 +1483,7 @@ async function giveAnotherTry(btn){const k=btn.dataset.k,n=btn.dataset.n;if(!con
 function hasUnsavedQuiz(){try{return Array.isArray(questions)&&questions.length>0&&JSON.stringify(questions)!==savedQuestionsSig;}catch(e){return false;}}
 function okToRefresh(){return !hasUnsavedQuiz()||confirm("You'll lose your progress. Refresh anyway?");}
 function reloadNow(){leaveWarningOff=true;location.reload();}
-function refreshPage(){
-  // If we're on the Live Results screen, go back to home without a full reload
-  const live=$('live');
-  if(live&&live.style.display!=='none'){
-    if(livePollId){clearInterval(livePollId);livePollId=null;}
-    liveQuizId='';liveSig='';liveList=[];liveFlagsMem=[];livePolling=false;liveViewOnly=false;liveTkMem='';
-    show('home');
-    renderHomePage();
-    return;
-  }
-  if(okToRefresh())reloadNow();
-}
+function refreshPage(){if(okToRefresh())reloadNow();}
 window.addEventListener('beforeunload',function(e){if(leaveWarningOff||!hasUnsavedQuiz())return;e.preventDefault();e.returnValue='';});
 
 (function(){
@@ -1628,6 +1503,8 @@ document.body.insertAdjacentHTML('afterbegin', BODY_HTML);
 initTheme();
 
 try {
+  // Push a clean state so the back-button / popstate never re-adds a #live= hash
+  history.replaceState(null,'',location.href.replace(/#live=[^&]*/,''));
   history.pushState(null,'',location.href);
   window.addEventListener('popstate',()=>{try{history.pushState(null,'',location.href);}catch(e){}});
 } catch(e){}
@@ -1640,9 +1517,13 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&liveQuizI
   renderHeaderAuth();
 
   // ── 2. Live Results link: #live=<id> or #live=<id>.<teacher key> ──
+  // Strip the hash immediately so a browser refresh reloads the clean URL
+  // (e.g. https://recachiastudios-hub.github.io/quiz/) → home screen,
+  // not Live Results. The live ID stays in memory for this session.
   const liveMatch=location.hash.match(/^#live=([a-z0-9]{4,20})(?:\.([a-f0-9]{32}))?$/i);
   if (liveMatch){
-    if(liveMatch[2]){liveTkMem=liveMatch[2].toLowerCase();lsSet('qb_tk:'+liveMatch[1],liveTkMem);try{history.replaceState(null,'',location.pathname+location.search+'#live='+liveMatch[1]);}catch(e){}}
+    if(liveMatch[2]){liveTkMem=liveMatch[2].toLowerCase();lsSet('qb_tk:'+liveMatch[1],liveTkMem);}
+    try{history.replaceState(null,'',location.pathname+location.search);}catch(e){}
     startLiveResults(liveMatch[1]);
     renderHomePage();
     return;
